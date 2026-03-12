@@ -84,22 +84,39 @@ def is_downtrend_by_pivots(df: pd.DataFrame, order: int = 1) -> pd.Series:
     return (last_ph < prev_ph) & (last_pl < prev_pl)
 
 
-def is_uptrend(df: pd.DataFrame, lookback: int = 5) -> pd.Series:
-    """True where pivot structure shows an uptrend (Grimes definition).
+def _short_uptrend(df: pd.DataFrame, lookback: int) -> pd.Series:
+    return df["close"] > df["close"].shift(lookback)
 
-    The ``lookback`` parameter is retained for API compatibility but is no
-    longer used; trend is determined by pivot-high/low structure instead.
+
+def _short_downtrend(df: pd.DataFrame, lookback: int) -> pd.Series:
+    return df["close"] < df["close"].shift(lookback)
+
+
+def is_uptrend(df: pd.DataFrame, lookback: int = 5) -> pd.Series:
+    """True where trend is up — pivot structure preferred, short-term fallback.
+
+    Uses confirmed HH+HL pivot structure when available.  Where pivot data
+    is insufficient (no confirmed pairs yet, or trend is ambiguous), falls
+    back to a simple close-vs-close comparison over ``lookback`` bars.
     """
-    return is_uptrend_by_pivots(df)
+    pivot_up = is_uptrend_by_pivots(df)
+    pivot_down = is_downtrend_by_pivots(df)
+    has_pivot = pivot_up | pivot_down
+    short = _short_uptrend(df, lookback)
+    return pivot_up | (short & ~has_pivot)
 
 
 def is_downtrend(df: pd.DataFrame, lookback: int = 5) -> pd.Series:
-    """True where pivot structure shows a downtrend (Grimes definition).
+    """True where trend is down — pivot structure preferred, short-term fallback.
 
-    The ``lookback`` parameter is retained for API compatibility but is no
-    longer used; trend is determined by pivot-high/low structure instead.
+    Mirror of ``is_uptrend``: uses confirmed LH+LL pivot structure when
+    available, otherwise falls back to close-vs-close comparison.
     """
-    return is_downtrend_by_pivots(df)
+    pivot_up = is_uptrend_by_pivots(df)
+    pivot_down = is_downtrend_by_pivots(df)
+    has_pivot = pivot_up | pivot_down
+    short = _short_downtrend(df, lookback)
+    return pivot_down | (short & ~has_pivot)
 
 
 def is_doji(df: pd.DataFrame, threshold: float = 0.1) -> pd.Series:

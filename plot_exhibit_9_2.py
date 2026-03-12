@@ -1,4 +1,5 @@
-"""Load exhibit 9.2 crude oil data, run all pattern detections, and plot."""
+"""Load exhibit 9.2 crude oil data, run all pattern detections, and plot
+with multi-scale trend background and trend-termination signals."""
 
 import pandas as pd
 import matplotlib
@@ -28,41 +29,36 @@ from patterns.continuation import (
     window_up, window_down, rising_three_methods, falling_three_methods,
     three_white_soldiers, separating_lines,
 )
+from trend import multi_scale_trend, trend_terminations
 
 
 # ── Load data ────────────────────────────────────────────────────────────────
 df = pd.read_csv("data/exhibit_9_2.csv", parse_dates=["Date"])
 df = df.set_index("Date").sort_index()
 df.index.name = "datetime"
-# No volume column — add zeros so pattern functions that might use it don't fail
 if "volume" not in df.columns:
     df["volume"] = 0.0
-# Lowercase columns to match project convention
 df.columns = [c.lower() for c in df.columns]
 
 # ── Run all patterns ─────────────────────────────────────────────────────────
 PATTERNS = {
-    # reversal
     "hammer":               hammer(df),
     "hanging_man":          hanging_man(df),
     "engulfing":            engulfing(df),
     "dark_cloud_cover":     dark_cloud_cover(df),
     "piercing_pattern":     piercing_pattern(df),
-    # stars
     "inverted_hammer":      inverted_hammer(df),
     "shooting_star":        shooting_star(df),
     "morning_star":         morning_star(df),
     "evening_star":         evening_star(df),
     "morning_doji_star":    morning_doji_star(df),
     "evening_doji_star":    evening_doji_star(df),
-    # doji
     "doji_at_top":          doji_at_top(df),
     "doji_at_bottom":       doji_at_bottom(df),
     "long_legged_doji":     long_legged_doji(df),
     "rickshaw_man":         rickshaw_man(df),
     "gravestone_doji":      gravestone_doji(df),
     "tri_star":             tri_star(df),
-    # more reversals
     "harami":               harami(df),
     "harami_cross":         harami_cross(df),
     "tweezers_top":         tweezers_top(df),
@@ -77,7 +73,6 @@ PATTERNS = {
     "fry_pan_bottom":       fry_pan_bottom(df),
     "tower_top":            tower_top(df),
     "tower_bottom":         tower_bottom(df),
-    # continuation
     "window_up":            window_up(df),
     "window_down":          window_down(df),
     "rising_three_methods": rising_three_methods(df),
@@ -86,7 +81,10 @@ PATTERNS = {
     "separating_lines":     separating_lines(df),
 }
 
-# Print detected signals
+# ── Multi-scale trend ────────────────────────────────────────────────────────
+scales = multi_scale_trend(df)
+terminations = trend_terminations(df, PATTERNS)
+
 print("Detected signals:")
 for name, sig in PATTERNS.items():
     hits = sig.dropna()
@@ -94,21 +92,37 @@ for name, sig in PATTERNS.items():
         for dt, val in hits.items():
             print(f"  {dt.date()}  {name:25s}  {val}")
 
+print(f"\nTrend termination signals ({len(terminations)}):")
+if len(terminations):
+    for _, row in terminations.iterrows():
+        print(f"  {row['date'].date()}  {row['pattern']:25s}  "
+              f"{row['signal']} vs {row['scale']} {row['trend_direction']}")
+
 # ── Plot ─────────────────────────────────────────────────────────────────────
-xs = list(range(len(df)))
 dates = df.index
 
-fig, ax = plt.subplots(figsize=(18, 8))
+fig, axes = plt.subplots(
+    2, 1, figsize=(18, 12), height_ratios=[4, 1],
+    sharex=True, gridspec_kw={"hspace": 0.05},
+)
+ax = axes[0]
+ax_trend = axes[1]
 
-# Draw candlesticks
+# ── Top panel: candlesticks + patterns ────────────────────────────────────────
+
+# Trend background shading on the candlestick chart (using medium/pivot trend)
+TREND_COLORS = {"up": "#d4efdf", "down": "#fadbd8"}  # light green / light red
+for i, dt in enumerate(dates):
+    med = scales.loc[dt, "medium"]
+    if med in TREND_COLORS:
+        ax.axvspan(i - 0.5, i + 0.5, color=TREND_COLORS[med], alpha=0.4, zorder=0)
+
+# Candlesticks
 for i, (dt, row) in enumerate(df.iterrows()):
     o, h, l, c = row["open"], row["high"], row["low"], row["close"]
     color = "#2ecc71" if c >= o else "#e74c3c"
-    # Wick
     ax.plot([i, i], [l, h], color=color, linewidth=0.8, zorder=2)
-    # Body
-    body_lo = min(o, c)
-    body_hi = max(o, c)
+    body_lo, body_hi = min(o, c), max(o, c)
     rect = mpatches.FancyBboxPatch(
         (i - 0.35, body_lo), 0.7, max(body_hi - body_lo, 0.5),
         boxstyle="square,pad=0",
@@ -116,14 +130,13 @@ for i, (dt, row) in enumerate(df.iterrows()):
     )
     ax.add_patch(rect)
 
-# Overlay pattern signals as markers above/below bars
+# Pattern annotations
 BULLISH_COLOR = "#3498db"
 BEARISH_COLOR = "#e67e22"
+TERM_COLOR = "#9b59b6"  # purple for termination signals
 
-# Collect unique pattern labels per bar for annotation
-bullish_hits = {}  # x_index -> list of pattern names
+bullish_hits = {}
 bearish_hits = {}
-
 for name, sig in PATTERNS.items():
     for dt, val in sig.dropna().items():
         i = dates.get_loc(dt)
@@ -138,12 +151,12 @@ for i, names in bullish_hits.items():
         "\n".join(names),
         xy=(i, df.iloc[i]["low"]),
         xytext=(i, y - 5 * len(names)),
-        fontsize=5.5,
-        color=BULLISH_COLOR,
+        fontsize=5.5, color=BULLISH_COLOR,
         ha="center", va="top",
         arrowprops=dict(arrowstyle="-", color=BULLISH_COLOR, lw=0.5),
     )
-    ax.plot(i, df.iloc[i]["low"] - 8, "^", color=BULLISH_COLOR, markersize=6, zorder=5)
+    ax.plot(i, df.iloc[i]["low"] - 8, "^",
+            color=BULLISH_COLOR, markersize=6, zorder=5)
 
 for i, names in bearish_hits.items():
     y = df.iloc[i]["high"] + 15
@@ -151,38 +164,76 @@ for i, names in bearish_hits.items():
         "\n".join(names),
         xy=(i, df.iloc[i]["high"]),
         xytext=(i, y + 5 * len(names)),
-        fontsize=5.5,
-        color=BEARISH_COLOR,
+        fontsize=5.5, color=BEARISH_COLOR,
         ha="center", va="bottom",
         arrowprops=dict(arrowstyle="-", color=BEARISH_COLOR, lw=0.5),
     )
-    ax.plot(i, df.iloc[i]["high"] + 8, "v", color=BEARISH_COLOR, markersize=6, zorder=5)
+    ax.plot(i, df.iloc[i]["high"] + 8, "v",
+            color=BEARISH_COLOR, markersize=6, zorder=5)
 
-# X-axis: monthly tick labels
-tick_positions = []
-tick_labels = []
+# Mark trend termination signals with purple diamonds
+if len(terminations):
+    term_set = set()
+    for _, row in terminations.iterrows():
+        i = dates.get_loc(row["date"])
+        if i not in term_set:
+            term_set.add(i)
+            ax.plot(i, df.iloc[i]["high"] + 20, "D",
+                    color=TERM_COLOR, markersize=7, zorder=6)
+
+ax.set_ylabel("Price (JPY/kl)", fontsize=10)
+ax.set_title(
+    "Exhibit 9.2 — Crude Oil (TOCOM, JPY) Jan–Apr 1990\n"
+    "Patterns + multi-scale trend (green/red bg = pivot trend, "
+    "purple diamond = trend termination)",
+    fontsize=12,
+)
+ax.grid(axis="y", alpha=0.3)
+
+legend_elements = [
+    Line2D([0], [0], marker="^", color="w", markerfacecolor=BULLISH_COLOR,
+           markersize=8, label="Bullish pattern"),
+    Line2D([0], [0], marker="v", color="w", markerfacecolor=BEARISH_COLOR,
+           markersize=8, label="Bearish pattern"),
+    Line2D([0], [0], marker="D", color="w", markerfacecolor=TERM_COLOR,
+           markersize=7, label="Trend termination"),
+    mpatches.Patch(color=TREND_COLORS["up"], alpha=0.4, label="Pivot uptrend"),
+    mpatches.Patch(color=TREND_COLORS["down"], alpha=0.4, label="Pivot downtrend"),
+]
+ax.legend(handles=legend_elements, loc="upper right", fontsize=8)
+
+# ── Bottom panel: multi-scale trend state ────────────────────────────────────
+SCALE_LABELS = {"short": 0, "medium": 1, "long": 2}
+TREND_VAL = {"up": 1, "down": -1}
+for scale_name, y_pos in SCALE_LABELS.items():
+    for i, dt in enumerate(dates):
+        val = scales.loc[dt, scale_name]
+        if val in TREND_VAL:
+            color = "#27ae60" if val == "up" else "#c0392b"
+            ax_trend.barh(y_pos, 1, left=i - 0.5, height=0.7,
+                          color=color, alpha=0.7, linewidth=0)
+        else:
+            ax_trend.barh(y_pos, 1, left=i - 0.5, height=0.7,
+                          color="#bdc3c7", alpha=0.3, linewidth=0)
+
+ax_trend.set_yticks(list(SCALE_LABELS.values()))
+ax_trend.set_yticklabels(["Short (5-bar)", "Medium (order 1)", "Long (order 2)"],
+                         fontsize=9)
+ax_trend.set_ylabel("Trend scale", fontsize=10)
+ax_trend.set_ylim(-0.5, 2.5)
+
+# X-axis labels
+tick_positions, tick_labels = [], []
 prev_month = None
 for i, dt in enumerate(dates):
     if dt.month != prev_month:
         tick_positions.append(i)
         tick_labels.append(dt.strftime("%b %Y"))
         prev_month = dt.month
-
-ax.set_xticks(tick_positions)
-ax.set_xticklabels(tick_labels, fontsize=9)
-ax.set_xlim(-1, len(df))
-ax.set_ylabel("Price (JPY/kl)", fontsize=10)
-ax.set_title("Exhibit 9.2 — Crude Oil (TOCOM, JPY) Jan–Apr 1990\nAll pattern signals overlaid", fontsize=12)
-ax.grid(axis="y", alpha=0.3)
-
-# Legend
-legend_elements = [
-    Line2D([0], [0], marker="^", color="w", markerfacecolor=BULLISH_COLOR,
-           markersize=8, label="Bullish signal"),
-    Line2D([0], [0], marker="v", color="w", markerfacecolor=BEARISH_COLOR,
-           markersize=8, label="Bearish signal"),
-]
-ax.legend(handles=legend_elements, loc="upper right", fontsize=9)
+ax_trend.set_xticks(tick_positions)
+ax_trend.set_xticklabels(tick_labels, fontsize=9)
+ax_trend.set_xlim(-1, len(df))
+ax_trend.grid(axis="x", alpha=0.3)
 
 plt.tight_layout()
 out = "exhibit_9_2_patterns.png"
