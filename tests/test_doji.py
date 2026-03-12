@@ -22,23 +22,33 @@ def _make_df(rows):
     return pd.DataFrame(rows, columns=["open", "high", "low", "close"])
 
 
-def _uptrend(n=6, base=100.0, step=1.0):
-    """n rising candles."""
-    rows = []
+def _uptrend(n=6, start=100.0):
+    """Zigzag uptrend: HH + HL pivot structure (tuples for _make_df)."""
+    rows, price = [], start
     for i in range(n):
-        o = base + i * step
-        c = o + 0.5
-        rows.append((o, c + 0.1, o - 0.1, c))
+        if i % 2 == 0:
+            o, c = price, price + 5
+            h, l = c + 0.3, o - 0.3
+        else:
+            o, c = price, price - 2
+            h, l = o + 0.1, c - 0.1
+        rows.append((o, h, l, c))
+        price = c
     return rows
 
 
-def _downtrend(n=6, base=110.0, step=1.0):
-    """n falling candles."""
-    rows = []
+def _downtrend(n=6, start=110.0):
+    """Zigzag downtrend: LH + LL pivot structure (tuples for _make_df)."""
+    rows, price = [], start
     for i in range(n):
-        o = base - i * step
-        c = o - 0.5
-        rows.append((o, o + 0.1, c - 0.1, c))
+        if i % 2 == 0:
+            o, c = price, price - 5
+            h, l = o + 0.3, c - 0.3
+        else:
+            o, c = price, price + 2
+            h, l = c + 0.1, o - 0.1
+        rows.append((o, h, l, c))
+        price = c
     return rows
 
 
@@ -228,20 +238,20 @@ class TestTriStar:
         return _make_df(rows)
 
     def test_bullish_after_downtrend(self):
-        trend = _downtrend(6, base=110.0)
+        trend = _downtrend(6, start=110.0)
         # doji mids go slightly down to stay in downtrend context at t-2
         df = self._make_tri_star(trend, [103.0, 102.8, 102.6])
         sig = tri_star(df, trend_lookback=5)
         assert sig.iloc[-1] == "bullish"
 
     def test_bearish_after_uptrend(self):
-        trend = _uptrend(6, base=100.0)
+        trend = _uptrend(6, start=100.0)
         df = self._make_tri_star(trend, [106.0, 106.2, 106.4])
         sig = tri_star(df, trend_lookback=5)
         assert sig.iloc[-1] == "bearish"
 
     def test_none_if_middle_not_doji(self):
-        trend = _uptrend(6, base=100.0)
+        trend = _uptrend(6, start=100.0)
         rows = list(trend)
         rows.append(_doji_candle(106.0, upper=0.5, lower=0.5))
         rows.append((106.0, 108.0, 104.0, 107.5))  # large body, not doji
@@ -251,7 +261,7 @@ class TestTriStar:
         assert sig.iloc[-1] is None
 
     def test_none_if_first_not_doji(self):
-        trend = _uptrend(6, base=100.0)
+        trend = _uptrend(6, start=100.0)
         rows = list(trend)
         rows.append((106.0, 108.0, 104.0, 107.5))  # not doji
         rows.append(_doji_candle(106.0, upper=0.5, lower=0.5))
@@ -261,7 +271,7 @@ class TestTriStar:
         assert sig.iloc[-1] is None
 
     def test_signal_on_third_candle_only(self):
-        trend = _downtrend(6, base=110.0)
+        trend = _downtrend(6, start=110.0)
         df = self._make_tri_star(trend, [103.0, 102.8, 102.6])
         sig = tri_star(df, trend_lookback=5)
         # The two intermediate doji candles should not themselves be the signal bar

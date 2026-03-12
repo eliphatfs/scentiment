@@ -23,19 +23,31 @@ def _df(rows: list[dict]) -> pd.DataFrame:
     return df.astype(float)
 
 
-def _downtrend(n: int = 5, start: float = 200.0, step: float = 2.0) -> list[dict]:
+def _downtrend(n: int = 6, start: float = 200.0) -> list[dict]:
     rows, price = [], start
-    for _ in range(n):
-        rows.append({"open": price, "high": price + 0.5, "low": price - 0.5, "close": price - step})
-        price -= step
+    for i in range(n):
+        if i % 2 == 0:
+            o, c = price, price - 5
+            h, l = o + 0.3, c - 0.3
+        else:
+            o, c = price, price + 2
+            h, l = c + 0.1, o - 0.1
+        rows.append({"open": o, "high": h, "low": l, "close": c})
+        price = c
     return rows
 
 
-def _uptrend(n: int = 5, start: float = 100.0, step: float = 2.0) -> list[dict]:
+def _uptrend(n: int = 6, start: float = 100.0) -> list[dict]:
     rows, price = [], start
-    for _ in range(n):
-        rows.append({"open": price, "high": price + 0.5, "low": price - 0.5, "close": price + step})
-        price += step
+    for i in range(n):
+        if i % 2 == 0:
+            o, c = price, price + 5
+            h, l = c + 0.3, o - 0.3
+        else:
+            o, c = price, price - 2
+            h, l = o + 0.1, c - 0.1
+        rows.append({"open": o, "high": h, "low": l, "close": c})
+        price = c
     return rows
 
 

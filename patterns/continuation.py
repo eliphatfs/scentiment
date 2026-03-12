@@ -32,7 +32,9 @@ from patterns._candle import (
     body_top,
     candle_range,
     is_downtrend,
+    is_downtrend_by_pivots,
     is_uptrend,
+    is_uptrend_by_pivots,
     lower_shadow,
     signal_series,
     upper_shadow,
@@ -73,7 +75,7 @@ def window_up(
     if trend_lookback > 0:
         # Check trend at the bar before the gap so the gap itself doesn't
         # corrupt the trend reading (a large gap can flip close vs. lookback).
-        prior_uptrend = df["close"].shift(1) > df["close"].shift(1 + trend_lookback)
+        prior_uptrend = is_uptrend_by_pivots(df).shift(1).fillna(False)
         gap = gap & prior_uptrend
     result = signal_series(df.index)
     result[gap.fillna(False)] = "bullish"
@@ -92,7 +94,7 @@ def window_down(
     """
     gap = df["high"] < df["low"].shift(1)
     if trend_lookback > 0:
-        prior_downtrend = df["close"].shift(1) < df["close"].shift(1 + trend_lookback)
+        prior_downtrend = is_downtrend_by_pivots(df).shift(1).fillna(False)
         gap = gap & prior_downtrend
     result = signal_series(df.index)
     result[gap.fillna(False)] = "bearish"
@@ -139,7 +141,7 @@ def rising_three_methods(
     )
 
     # Trend measured at the first candle
-    trend_at_first = df["close"].shift(4) > df["close"].shift(4 + trend_lookback)
+    trend_at_first = is_uptrend_by_pivots(df).shift(4).fillna(False)
 
     signal = (
         trend_at_first
@@ -186,7 +188,7 @@ def falling_three_methods(
     )
 
     # Trend measured at the first candle
-    trend_at_first = df["close"].shift(4) < df["close"].shift(4 + trend_lookback)
+    trend_at_first = is_downtrend_by_pivots(df).shift(4).fillna(False)
 
     signal = (
         trend_at_first
@@ -231,7 +233,7 @@ def three_white_soldiers(
     upper_small = lambda n: upper_shadow(df).shift(n) <= shadow_ratio * candle_range(df).shift(n)
 
     # Trend at the first candle (t-2)
-    trend_at_first = df["close"].shift(2) < df["close"].shift(2 + trend_lookback)
+    trend_at_first = is_downtrend_by_pivots(df).shift(2).fillna(False)
 
     signal = (
         trend_at_first

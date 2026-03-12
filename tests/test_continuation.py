@@ -23,19 +23,31 @@ def _df(rows: list[dict]) -> pd.DataFrame:
     return df.astype(float)
 
 
-def _uptrend(n: int = 5, start: float = 100.0, step: float = 2.0) -> list[dict]:
+def _uptrend(n: int = 6, start: float = 100.0) -> list[dict]:
     rows, price = [], start
-    for _ in range(n):
-        rows.append({"open": price, "high": price + 0.5, "low": price - 0.5, "close": price + step})
-        price += step
+    for i in range(n):
+        if i % 2 == 0:
+            o, c = price, price + 5
+            h, l = c + 0.3, o - 0.3
+        else:
+            o, c = price, price - 2
+            h, l = o + 0.1, c - 0.1
+        rows.append({"open": o, "high": h, "low": l, "close": c})
+        price = c
     return rows
 
 
-def _downtrend(n: int = 5, start: float = 200.0, step: float = 2.0) -> list[dict]:
+def _downtrend(n: int = 6, start: float = 200.0) -> list[dict]:
     rows, price = [], start
-    for _ in range(n):
-        rows.append({"open": price, "high": price + 0.5, "low": price - 0.5, "close": price - step})
-        price -= step
+    for i in range(n):
+        if i % 2 == 0:
+            o, c = price, price - 5
+            h, l = o + 0.3, c - 0.3
+        else:
+            o, c = price, price + 2
+            h, l = c + 0.1, o - 0.1
+        rows.append({"open": o, "high": h, "low": l, "close": c})
+        price = c
     return rows
 
 
@@ -69,14 +81,13 @@ class TestWindowUp:
         assert window_up(df).iloc[-1] is None
 
     def test_trend_filter_respected(self):
-        # Downtrend with large steps so the prior bar is clearly still declining.
-        # The gap-up bar has low > prior high but the bar BEFORE it (the
-        # predecessor) has close < close-5-bars-ago, so trend check at t-1 fails.
-        rows = _downtrend(n=5, start=200.0, step=10.0)   # closes: 190,180,170,160,150
-        rows.append({"open": 152.0, "high": 155.0, "low": 148.0, "close": 149.0})
-        rows.append({"open": 158.0, "high": 162.0, "low": 157.0, "close": 159.0})  # gap up
+        # Gap up during a downtrend: trend_lookback=5 requires a prior uptrend
+        # (pivot HH+HL), which does not exist in a downtrend prefix → None.
+        rows = _downtrend()
+        last_high = max(r["high"] for r in rows[-1:])
+        rows.append({"open": last_high + 2, "high": last_high + 5,
+                     "low": last_high + 1, "close": last_high + 4})  # gap up
         df = _df(rows)
-        # At the gap bar (index 6), prior bar (index 5) has close=149 < close[0]=190 → downtrend
         assert window_up(df, trend_lookback=5).iloc[-1] is None
 
     def test_first_bar_is_never_a_gap(self):
@@ -102,11 +113,13 @@ class TestWindowDown:
         assert window_down(df).iloc[-1] is None
 
     def test_trend_filter_respected(self):
-        rows = _uptrend(n=5, start=100.0, step=10.0)   # closes: 110,120,130,140,150
-        rows.append({"open": 148.0, "high": 155.0, "low": 147.0, "close": 152.0})
-        rows.append({"open": 142.0, "high": 145.0, "low": 141.0, "close": 143.0})  # gap down
+        # Gap down during an uptrend: trend_lookback=5 requires a prior downtrend
+        # (pivot LH+LL), which does not exist in an uptrend prefix → None.
+        rows = _uptrend()
+        last_low = min(r["low"] for r in rows[-1:])
+        rows.append({"open": last_low - 2, "high": last_low - 1,
+                     "low": last_low - 5, "close": last_low - 4})  # gap down
         df = _df(rows)
-        # At the gap bar (index 6), prior bar (index 5) has close=152 > close[0]=110 → uptrend
         assert window_down(df, trend_lookback=5).iloc[-1] is None
 
 

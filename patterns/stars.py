@@ -41,7 +41,9 @@ from patterns._candle import (
     candle_range,
     is_doji,
     is_downtrend,
+    is_downtrend_by_pivots,
     is_uptrend,
+    is_uptrend_by_pivots,
     lower_shadow,
     signal_series,
     upper_shadow,
@@ -173,7 +175,7 @@ def _morning_star_signal(
     # Measure trend at the first candle (t-2): was there a downtrend leading
     # into the pattern?  Checking at t would be misleading because the
     # pattern's own recovery candle raises the current close.
-    trend_at_first = df["close"].shift(2) < df["close"].shift(2 + trend_lookback)
+    trend_at_first = is_downtrend_by_pivots(df).shift(2).fillna(False)
 
     return (
         trend_at_first
@@ -222,7 +224,7 @@ def _evening_star_signal(
     # Measure trend at the first candle (t-2): was there an uptrend leading
     # into the pattern?  Checking at t would be misleading because the
     # pattern's own declining third candle lowers the current close.
-    trend_at_first = df["close"].shift(2) > df["close"].shift(2 + trend_lookback)
+    trend_at_first = is_uptrend_by_pivots(df).shift(2).fillna(False)
 
     return (
         trend_at_first

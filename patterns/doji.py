@@ -38,7 +38,9 @@ from patterns._candle import (
     candle_range,
     is_doji,
     is_downtrend,
+    is_downtrend_by_pivots,
     is_uptrend,
+    is_uptrend_by_pivots,
     lower_shadow,
     signal_series,
     upper_shadow,
@@ -225,8 +227,8 @@ def tri_star(
         & is_doji(df, doji_threshold)
     )
 
-    trend_at_first_up   = df["close"].shift(2) > df["close"].shift(2 + trend_lookback)
-    trend_at_first_down = df["close"].shift(2) < df["close"].shift(2 + trend_lookback)
+    trend_at_first_up   = is_uptrend_by_pivots(df).shift(2).fillna(False)
+    trend_at_first_down = is_downtrend_by_pivots(df).shift(2).fillna(False)
 
     bullish = (all_doji & trend_at_first_down).fillna(False)
     bearish = (all_doji & trend_at_first_up).fillna(False)

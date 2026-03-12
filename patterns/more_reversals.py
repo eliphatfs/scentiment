@@ -32,7 +32,9 @@ from patterns._candle import (
     candle_range,
     is_doji,
     is_downtrend,
+    is_downtrend_by_pivots,
     is_uptrend,
+    is_uptrend_by_pivots,
     lower_shadow,
     signal_series,
     upper_shadow,
@@ -223,7 +225,7 @@ def upside_gap_two_crows(
     curr_close = df["close"]
 
     # Trend measured at the first candle to avoid the pattern's own decline
-    trend_at_first = df["close"].shift(2) > df["close"].shift(2 + trend_lookback)
+    trend_at_first = is_uptrend_by_pivots(df).shift(2).fillna(False)
 
     signal = (
         trend_at_first
@@ -272,7 +274,7 @@ def three_black_crows(
         lower_shadow(df).shift(n) <= shadow_ratio * candle_range(df).shift(n)
     )
 
-    trend_at_first = df["close"].shift(2) > df["close"].shift(2 + trend_lookback)
+    trend_at_first = is_uptrend_by_pivots(df).shift(2).fillna(False)
 
     signal = (
         trend_at_first
@@ -342,7 +344,7 @@ def counterattack_lines(
 def three_mountains(
     df: pd.DataFrame,
     lookback: int = 30,
-    tolerance: float = 0.03,
+    tolerance: float = 0.003,
 ) -> pd.Series:
     """Bearish reversal: three mountains (triple-top chart pattern).
 
@@ -383,7 +385,7 @@ def three_mountains(
 def three_rivers(
     df: pd.DataFrame,
     lookback: int = 30,
-    tolerance: float = 0.03,
+    tolerance: float = 0.003,
 ) -> pd.Series:
     """Bullish reversal: three rivers (triple-bottom chart pattern).
 

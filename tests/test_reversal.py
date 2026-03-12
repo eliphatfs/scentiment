@@ -28,23 +28,43 @@ def _df(rows: list[dict]) -> pd.DataFrame:
 # Helpers shared across tests
 # ---------------------------------------------------------------------------
 
-def _downtrend_prefix(n: int = 5, start: float = 200.0, step: float = 2.0) -> list[dict]:
-    """n bars of plain declining candles to establish a downtrend."""
+def _downtrend_prefix(n: int = 6, start: float = 200.0) -> list[dict]:
+    """Zigzag downtrend: alternating thrust-down / bounce-up bars.
+
+    Creates confirmed LH + LL pivot structure (Grimes definition) in n bars.
+    Requires n >= 6 for two confirmed pivot pairs.
+    """
     rows = []
     price = start
-    for _ in range(n):
-        rows.append({"open": price, "high": price + 0.5, "low": price - 0.5, "close": price - step})
-        price -= step
+    for i in range(n):
+        if i % 2 == 0:  # thrust down
+            o, c = price, price - 5
+            h, l = o + 0.3, c - 0.3
+        else:  # partial bounce
+            o, c = price, price + 2
+            h, l = c + 0.1, o - 0.1
+        rows.append({"open": o, "high": h, "low": l, "close": c})
+        price = c
     return rows
 
 
-def _uptrend_prefix(n: int = 5, start: float = 100.0, step: float = 2.0) -> list[dict]:
-    """n bars of plain rising candles to establish an uptrend."""
+def _uptrend_prefix(n: int = 6, start: float = 100.0) -> list[dict]:
+    """Zigzag uptrend: alternating thrust-up / pullback bars.
+
+    Creates confirmed HH + HL pivot structure (Grimes definition) in n bars.
+    Requires n >= 6 for two confirmed pivot pairs.
+    """
     rows = []
     price = start
-    for _ in range(n):
-        rows.append({"open": price, "high": price + 0.5, "low": price - 0.5, "close": price + step})
-        price += step
+    for i in range(n):
+        if i % 2 == 0:  # thrust up
+            o, c = price, price + 5
+            h, l = c + 0.3, o - 0.3
+        else:  # partial pullback
+            o, c = price, price - 2
+            h, l = o + 0.1, c - 0.1
+        rows.append({"open": o, "high": h, "low": l, "close": c})
+        price = c
     return rows
 
 
