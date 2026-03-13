@@ -68,8 +68,8 @@ class BacktestConfig:
     max_win_rate: float = 0.85
     sr_margin: float = 0.003       # 0.3% for S/R zone clustering
     sr_min_signals: int = 2
-    max_kelly_fraction: float = 0.25  # cap Kelly to avoid over-leverage
-    min_reward_risk: float = 0.5   # skip trades with terrible R:R
+    max_kelly_fraction: float = 0.40  # cap Kelly
+    min_reward_risk: float = 1.0   # require at least 1:1 R:R
     execution: str = "next_open"   # "next_open" or "close_hack"
 
 
@@ -151,79 +151,68 @@ def _run_patterns_on_slice(df_slice: pd.DataFrame) -> dict[str, pd.Series]:
     return all_patterns
 
 
-def _get_last_bar_signals(
-    df_slice: pd.DataFrame,
-) -> tuple[list[tuple[str, str, float]], list[tuple[str, str, float]]]:
-    """Get bullish and bearish signals at the last bar of df_slice.
+@dataclass
+class BarAnalysis:
+    """Combined analysis results for a single bar, sharing pattern runs."""
+    bullish_signals: list[tuple[str, str, float]]
+    bearish_signals: list[tuple[str, str, float]]
+    sr_zones: pd.DataFrame
 
-    Returns (bullish_signals, bearish_signals) where each is a list of
-    (pattern_name, signal_value, strength).
-    """
+
+def _analyze_bar(
+    df_slice: pd.DataFrame,
+    config: BacktestConfig,
+) -> BarAnalysis:
+    """Run patterns once on the visible slice and return signals + S/R zones."""
     if len(df_slice) < 3:
-        return [], []
+        return BarAnalysis([], [], pd.DataFrame())
 
     all_raw = _run_patterns_on_slice(df_slice)
-    last_dt = df_slice.index[-1]
 
+    # --- Extract last-bar signals ---
     bullish_signals = []
     bearish_signals = []
 
-    for name, fn in BULLISH_PATTERNS.items():
+    for name in BULLISH_PATTERNS:
         raw_sig = all_raw.get(name)
         if raw_sig is None:
             continue
-
-        # For patterns needing confirmation, use confirmed version
         if name in CONFIRMED_BULLISH:
             conf_sig = CONFIRMED_BULLISH[name](df_slice)
             val = conf_sig.iloc[-1]
         else:
             val = raw_sig.iloc[-1]
-
         if val == "bullish":
-            strength = pattern_strength(df_slice, name, raw_sig)
-            score = strength.iloc[-1] if not np.isnan(strength.iloc[-1]) else 0.5
+            s = pattern_strength(df_slice, name, raw_sig)
+            score = s.iloc[-1] if not np.isnan(s.iloc[-1]) else 0.5
             bullish_signals.append((name, val, score))
 
-    for name, fn in BEARISH_PATTERNS.items():
+    for name in BEARISH_PATTERNS:
         raw_sig = all_raw.get(name)
         if raw_sig is None:
             continue
-
-        # Check both raw (pending) and confirmed for exit triggers
         raw_val = raw_sig.iloc[-1]
         if name in CONFIRMED_BEARISH:
             conf_sig = CONFIRMED_BEARISH[name](df_slice)
             conf_val = conf_sig.iloc[-1]
-            # Either pending or confirmed bearish triggers exit
             if raw_val == "bearish" or conf_val == "bearish":
-                score = 0.5
                 s = pattern_strength(df_slice, name, raw_sig)
-                if not np.isnan(s.iloc[-1]):
-                    score = s.iloc[-1]
+                score = s.iloc[-1] if not np.isnan(s.iloc[-1]) else 0.5
                 bearish_signals.append((name, "bearish", score))
         else:
             if raw_val == "bearish":
-                score = 0.5
                 s = pattern_strength(df_slice, name, raw_sig)
-                if not np.isnan(s.iloc[-1]):
-                    score = s.iloc[-1]
+                score = s.iloc[-1] if not np.isnan(s.iloc[-1]) else 0.5
                 bearish_signals.append((name, "bearish", score))
 
-    return bullish_signals, bearish_signals
-
-
-def _find_sr_zones(
-    df_slice: pd.DataFrame,
-    config: BacktestConfig,
-) -> pd.DataFrame:
-    """Compute S/R zones from all pattern signals on the visible data."""
-    all_raw = _run_patterns_on_slice(df_slice)
-    return pattern_sr_zones(
+    # --- S/R zones from the same pattern run ---
+    zones = pattern_sr_zones(
         df_slice, all_raw,
         margin=config.sr_margin,
         min_signals=config.sr_min_signals,
     )
+
+    return BarAnalysis(bullish_signals, bearish_signals, zones)
 
 
 def _find_nearest_levels(
@@ -362,13 +351,16 @@ def run_backtest(
                 position = None
                 exited = True
 
+            # -- Run combined analysis (patterns + S/R) once per bar --
+        analysis = None
+        if len(df_visible) >= 3:
+            analysis = _analyze_bar(df_visible, config)
+
             # -- Check for bearish reversal signals (exit trigger) --
-            if not exited and position is not None and len(df_visible) >= 3:
-                _, bearish_sigs = _get_last_bar_signals(df_visible)
-                if bearish_sigs:
+            if not exited and position is not None and analysis.bearish_signals:
                     exit_price = current_bar["close"] - config.spread
                     exit_price -= exit_price * config.commission_rate
-                    names = ", ".join(s[0] for s in bearish_sigs)
+                    names = ", ".join(s[0] for s in analysis.bearish_signals)
                     position.exit_date = current_date
                     position.exit_price = exit_price
                     position.exit_reason = f"reversal: {names}"
@@ -378,16 +370,16 @@ def run_backtest(
                     position = None
 
         # -- Look for entry signals if no position --
-        if position is None and pending_entry is None and len(df_visible) >= 6:
-            bullish_sigs, _ = _get_last_bar_signals(df_visible)
+        if position is None and pending_entry is None and analysis is not None and len(df_visible) >= 6:
+            bullish_sigs = analysis.bullish_signals
 
             if bullish_sigs:
                 # Use the strongest signal
                 best = max(bullish_sigs, key=lambda s: s[2])
                 pattern_name, _, strength = best
 
-                # Compute S/R zones for TP/SL
-                zones = _find_sr_zones(df_visible, config)
+                # S/R zones from the same analysis
+                zones = analysis.sr_zones
                 ref_price = current_bar["close"]
                 support, resistance = _find_nearest_levels(ref_price, zones)
 
@@ -691,62 +683,51 @@ if __name__ == "__main__":
     print(f"\nBuy & Hold: {bh_shares} shares @ ${df.iloc[0]['close']:.2f}"
           f" → ${benchmark['equity'].iloc[-1]:,.2f} ({bh_return:.2%})")
 
-    # --- Run both execution modes and cache results ---
-    results = {}
-    for mode in ("next_open", "close_hack"):
-        cfg = BacktestConfig(execution=mode)
-        trades, equity = run_backtest(df, cfg)
-        results[mode] = (trades, equity, cfg)
-        print_report(trades, equity, cfg, label=f"SPY 2021-2022 — {mode}")
+    # --- Run close_hack mode ---
+    cfg = BacktestConfig(execution="close_hack")
+    trades, equity = run_backtest(df, cfg)
+    print_report(trades, equity, cfg, label="SPY 2021-2022 — close_hack")
 
-        # Alpha/beta comparison
-        metrics = compute_alpha_beta(equity, benchmark)
-        if metrics:
-            print_comparison(metrics, label=mode)
+    # Alpha/beta comparison
+    metrics = compute_alpha_beta(equity, benchmark)
+    if metrics:
+        print_comparison(metrics, label="close_hack")
 
-    # --- Plot equity curves with buy-and-hold overlay ---
-    fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True,
-                             gridspec_kw={"hspace": 0.15})
+    # --- Plot equity curve with buy-and-hold overlay ---
+    fig, ax = plt.subplots(1, 1, figsize=(14, 5))
 
-    for i, mode in enumerate(("next_open", "close_hack")):
-        trades, equity, cfg = results[mode]
-        ax = axes[i]
+    strat_pct = (equity["equity"] / equity["equity"].iloc[0] - 1) * 100
+    bench_pct = (benchmark["equity"] / benchmark["equity"].iloc[0] - 1) * 100
 
-        # Normalize to percentage returns for fair comparison
-        strat_pct = (equity["equity"] / equity["equity"].iloc[0] - 1) * 100
-        bench_pct = (benchmark["equity"] / benchmark["equity"].iloc[0] - 1) * 100
+    ax.plot(equity["date"], strat_pct.values, linewidth=1.2,
+            color="#2980b9", label="Strategy (close_hack)")
+    ax.plot(benchmark["date"], bench_pct.values, linewidth=1,
+            color="#95a5a6", linestyle="--", label="Buy & Hold (SPY)")
+    ax.fill_between(equity["date"], strat_pct.values, bench_pct.values,
+                    where=strat_pct.values > bench_pct.values,
+                    alpha=0.15, color="#27ae60", label="Outperformance")
+    ax.fill_between(equity["date"], strat_pct.values, bench_pct.values,
+                    where=strat_pct.values <= bench_pct.values,
+                    alpha=0.15, color="#e74c3c", label="Underperformance")
 
-        ax.plot(equity["date"], strat_pct.values, linewidth=1.2,
-                color="#2980b9", label=f"Strategy ({mode})")
-        ax.plot(benchmark["date"], bench_pct.values, linewidth=1,
-                color="#95a5a6", linestyle="--", label="Buy & Hold (SPY)")
-        ax.fill_between(equity["date"], strat_pct.values, bench_pct.values,
-                        where=strat_pct.values > bench_pct.values,
-                        alpha=0.15, color="#27ae60", label="Outperformance")
-        ax.fill_between(equity["date"], strat_pct.values, bench_pct.values,
-                        where=strat_pct.values <= bench_pct.values,
-                        alpha=0.15, color="#e74c3c", label="Underperformance")
+    for t in trades:
+        color = "#27ae60" if t.pnl > 0 else "#e74c3c"
+        ax.axvline(t.entry_date, color=color, alpha=0.2, linewidth=0.5)
 
-        # Mark trades
-        for t in trades:
-            color = "#27ae60" if t.pnl > 0 else "#e74c3c"
-            ax.axvline(t.entry_date, color=color, alpha=0.2, linewidth=0.5)
+    ax.set_ylabel("Return (%)")
+    ax.set_title(
+        f"close_hack | "
+        f"alpha={metrics.get('alpha_annual', 0):.3f}  "
+        f"beta={metrics.get('beta', 0):.3f}  "
+        f"Sharpe={metrics.get('strat_sharpe', 0):.2f} vs {metrics.get('bench_sharpe', 0):.2f}  "
+        f"IR={metrics.get('info_ratio', 0):.2f}",
+        fontsize=10,
+    )
+    ax.axhline(0, color="black", linewidth=0.5, alpha=0.3)
+    ax.legend(loc="upper left", fontsize=8)
+    ax.grid(alpha=0.3)
+    ax.set_xlabel("Date")
 
-        metrics = compute_alpha_beta(equity, benchmark)
-        ax.set_ylabel("Return (%)")
-        ax.set_title(
-            f"{mode} | "
-            f"alpha={metrics.get('alpha_annual', 0):.3f}  "
-            f"beta={metrics.get('beta', 0):.3f}  "
-            f"Sharpe={metrics.get('strat_sharpe', 0):.2f} vs {metrics.get('bench_sharpe', 0):.2f}  "
-            f"IR={metrics.get('info_ratio', 0):.2f}",
-            fontsize=10,
-        )
-        ax.axhline(0, color="black", linewidth=0.5, alpha=0.3)
-        ax.legend(loc="upper left", fontsize=8)
-        ax.grid(alpha=0.3)
-
-    axes[1].set_xlabel("Date")
     plt.tight_layout()
     out = "backtest_spy_2021_2022.png"
     plt.savefig(out, dpi=150)
