@@ -60,10 +60,13 @@ def body_run_trend(df: pd.DataFrame, min_run: int = 2) -> pd.Series:
     for _, grp in direction.groupby(group):
         if len(grp) >= min_run:
             val = grp.iloc[0]
+            # Only label from the min_run-th bar onward — at bar k within the
+            # run, we only know k consecutive same-color bodies have occurred.
+            causal_idx = grp.index[min_run - 1:]
             if val == 1:
-                result[grp.index] = "up"
+                result[causal_idx] = "up"
             elif val == -1:
-                result[grp.index] = "down"
+                result[causal_idx] = "down"
 
     return result
 
