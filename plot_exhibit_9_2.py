@@ -102,7 +102,7 @@ if len(terminations):
 dates = df.index
 
 fig, axes = plt.subplots(
-    2, 1, figsize=(18, 12), height_ratios=[4, 1],
+    2, 1, figsize=(18, 12), height_ratios=[3, 1],
     sharex=True, gridspec_kw={"hspace": 0.05},
 )
 ax = axes[0]
@@ -203,24 +203,30 @@ legend_elements = [
 ax.legend(handles=legend_elements, loc="upper right", fontsize=8)
 
 # ── Bottom panel: multi-scale trend state ────────────────────────────────────
-SCALE_LABELS = {"short": 0, "medium": 1, "long": 2}
-TREND_VAL = {"up": 1, "down": -1}
+SCALE_LABELS = {"micro": 0, "short": 1, "medium": 2, "long": 3}
+SCALE_NAMES = {
+    "micro": "Micro (body runs)",
+    "short": "Short (reg. slope)",
+    "medium": "Medium (order 1)",
+    "long": "Long (order 2)",
+}
 for scale_name, y_pos in SCALE_LABELS.items():
     for i, dt in enumerate(dates):
         val = scales.loc[dt, scale_name]
-        if val in TREND_VAL:
-            color = "#27ae60" if val == "up" else "#c0392b"
-            ax_trend.barh(y_pos, 1, left=i - 0.5, height=0.7,
-                          color=color, alpha=0.7, linewidth=0)
+        if val == "up":
+            color = "#27ae60"
+        elif val == "down":
+            color = "#c0392b"
         else:
-            ax_trend.barh(y_pos, 1, left=i - 0.5, height=0.7,
-                          color="#bdc3c7", alpha=0.3, linewidth=0)
+            color = "#bdc3c7"
+        alpha = 0.7 if val in ("up", "down") else 0.3
+        ax_trend.barh(y_pos, 1, left=i - 0.5, height=0.7,
+                      color=color, alpha=alpha, linewidth=0)
 
 ax_trend.set_yticks(list(SCALE_LABELS.values()))
-ax_trend.set_yticklabels(["Short (5-bar)", "Medium (order 1)", "Long (order 2)"],
-                         fontsize=9)
+ax_trend.set_yticklabels([SCALE_NAMES[k] for k in SCALE_LABELS], fontsize=8)
 ax_trend.set_ylabel("Trend scale", fontsize=10)
-ax_trend.set_ylim(-0.5, 2.5)
+ax_trend.set_ylim(-0.5, 3.5)
 
 # X-axis labels
 tick_positions, tick_labels = [], []

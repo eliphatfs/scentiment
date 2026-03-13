@@ -84,39 +84,47 @@ def is_downtrend_by_pivots(df: pd.DataFrame, order: int = 1) -> pd.Series:
     return (last_ph < prev_ph) & (last_pl < prev_pl)
 
 
-def _short_uptrend(df: pd.DataFrame, lookback: int) -> pd.Series:
-    return df["close"] > df["close"].shift(lookback)
+def _regression_slope(closes: pd.Series, window: int) -> pd.Series:
+    """Rolling OLS slope of closes over ``window`` bars."""
+    import numpy as np
 
+    n = window
+    x_mean = (n - 1) / 2.0
+    x_var = n * (n ** 2 - 1) / 12.0  # Σ (x - x̄)²
 
-def _short_downtrend(df: pd.DataFrame, lookback: int) -> pd.Series:
-    return df["close"] < df["close"].shift(lookback)
+    sum_y = closes.rolling(n, min_periods=n).sum()
+    sum_xy = pd.Series(0.0, index=closes.index)
+    for i in range(n):
+        sum_xy = sum_xy + i * closes.shift(n - 1 - i)
+
+    return (sum_xy - x_mean * sum_y) / x_var
 
 
 def is_uptrend(df: pd.DataFrame, lookback: int = 5) -> pd.Series:
-    """True where trend is up — pivot structure preferred, short-term fallback.
+    """True where trend is up — pivot structure preferred, regression fallback.
 
     Uses confirmed HH+HL pivot structure when available.  Where pivot data
     is insufficient (no confirmed pairs yet, or trend is ambiguous), falls
-    back to a simple close-vs-close comparison over ``lookback`` bars.
+    back to a positive linear regression slope over ``lookback`` bars.
     """
     pivot_up = is_uptrend_by_pivots(df)
     pivot_down = is_downtrend_by_pivots(df)
     has_pivot = pivot_up | pivot_down
-    short = _short_uptrend(df, lookback)
-    return pivot_up | (short & ~has_pivot)
+    slope = _regression_slope(df["close"], lookback)
+    return pivot_up | ((slope > 0) & ~has_pivot)
 
 
 def is_downtrend(df: pd.DataFrame, lookback: int = 5) -> pd.Series:
-    """True where trend is down — pivot structure preferred, short-term fallback.
+    """True where trend is down — pivot structure preferred, regression fallback.
 
     Mirror of ``is_uptrend``: uses confirmed LH+LL pivot structure when
-    available, otherwise falls back to close-vs-close comparison.
+    available, otherwise falls back to negative regression slope.
     """
     pivot_up = is_uptrend_by_pivots(df)
     pivot_down = is_downtrend_by_pivots(df)
     has_pivot = pivot_up | pivot_down
-    short = _short_downtrend(df, lookback)
-    return pivot_down | (short & ~has_pivot)
+    slope = _regression_slope(df["close"], lookback)
+    return pivot_down | ((slope < 0) & ~has_pivot)
 
 
 def is_doji(df: pd.DataFrame, threshold: float = 0.1) -> pd.Series:

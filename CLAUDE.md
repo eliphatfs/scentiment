@@ -40,8 +40,8 @@ The project is Python-based (`ruff` for linting, `pytest` for testing). Planned 
 
 | Module | Source | Purpose |
 |---|---|---|
-| `_candle.py` | Grimes | `is_uptrend_by_pivots` / `is_downtrend_by_pivots` — confirmed HH+HL / LH+LL via pivot structure; `is_uptrend` / `is_downtrend` — hybrid (pivot when confirmed, short-term close-comparison fallback) |
-| `trend.py` | Grimes | Multi-scale trend: `short_trend` (close-vs-close), `pivot_trend` (order-1/2 pivots), `multi_scale_trend`, `effective_trend` (pivot-preferred with fallback), `trend_terminations` (reversal patterns firing against active trends) |
+| `_candle.py` | Grimes | `is_uptrend_by_pivots` / `is_downtrend_by_pivots` — confirmed HH+HL / LH+LL via pivot structure; `is_uptrend` / `is_downtrend` — hybrid (pivot when confirmed, regression-slope fallback); `_regression_slope` — rolling OLS slope of closes |
+| `trend.py` | Grimes + Nison | Multi-scale trend with four time-scales: `body_run_trend` (Nison-style micro-trend from consecutive same-color bodies), `regression_slope_trend` / `short_trend` (rolling OLS slope), `pivot_trend` (order-1/2 pivots); `multi_scale_trend` (micro/short/medium/long), `effective_trend` (pivot → regression → body-run fallback), `trend_terminations` (reversal patterns firing against active trends) |
 
 ### Plotting
 
@@ -51,7 +51,7 @@ The project is Python-based (`ruff` for linting, `pytest` for testing). Planned 
 
 ```bash
 # Install dependencies
-pip install pandas pytest
+pip install pandas numpy pytest matplotlib
 
 # Run all tests
 pytest
@@ -65,6 +65,7 @@ pytest tests/test_doji.py
 - OHLCV columns must be converted to `float` on load (they are strings in the JSON)
 - Pattern functions accept a pandas DataFrame with columns `open`, `high`, `low`, `close` and return a `pd.Series` of signal strings
 - Pattern logic must reference the specific book chapter in docstrings
-- **Trend detection** uses Grimes pivot structure (HH+HL = uptrend, LH+LL = downtrend) with a short-term close-comparison fallback when pivot data is insufficient. `is_uptrend_by_pivots` / `is_downtrend_by_pivots` are the strict pivot-only versions; `is_uptrend` / `is_downtrend` add the fallback. The `trend_lookback` parameter on pattern functions is retained for API compatibility but ignored by the pivot-based implementation.
+- **Trend detection** uses Grimes pivot structure (HH+HL = uptrend, LH+LL = downtrend) with a rolling linear regression slope fallback when pivot data is insufficient. `is_uptrend_by_pivots` / `is_downtrend_by_pivots` are the strict pivot-only versions; `is_uptrend` / `is_downtrend` add the regression fallback. The `trend_lookback` parameter on pattern functions controls the regression window size when pivots are unavailable.
+- **Multi-scale trend** (`trend.py`) provides four time-scales: micro (body runs, Nison-style 2+ consecutive same-color candles), short (regression slope), medium (order-1 pivots), long (order-2 pivots). `trend_terminations()` flags where reversal patterns fire against an active trend at any scale.
 - Trend is always measured at the **first candle of the pattern** (not the last) via `is_uptrend_by_pivots(df).shift(N)` to avoid contamination from the pattern's own bars. For window gaps, check trend at `t-1` (the bar before the gap).
 - **Never** initialize a signal Series with `pd.Series(None, index=..., dtype=object)` — this stores `float NaN`. Use `signal_series(df.index)` from `patterns._candle` instead, which returns `pd.Series([None] * len(df), index=df.index, dtype=object)`. Assign with `result[mask.fillna(False)] = "signal"`.
