@@ -43,6 +43,19 @@ The project is Python-based (`ruff` for linting, `pytest` for testing). Planned 
 | `_candle.py` | Grimes | `is_uptrend_by_pivots` / `is_downtrend_by_pivots` — confirmed HH+HL / LH+LL via pivot structure; `is_uptrend` / `is_downtrend` — hybrid (pivot when confirmed, regression-slope fallback); `_regression_slope` — rolling OLS slope of closes |
 | `trend.py` | Grimes + Nison | Multi-scale trend with four time-scales: `body_run_trend` (Nison-style micro-trend from consecutive same-color bodies), `regression_slope_trend` / `short_trend` (rolling OLS slope), `pivot_trend` (order-1/2 pivots); `multi_scale_trend` (micro/short/medium/long), `effective_trend` (pivot → regression → body-run fallback), `trend_terminations` (reversal patterns firing against active trends) |
 
+### Pattern scoring and confirmation (in `patterns/`)
+
+| Module | Purpose |
+|---|---|
+| `scoring.py` | Shape-quality scoring (0.0–1.0) for each pattern family, volume confirmation score, trend strength score, and composite `pattern_strength()` combiner |
+| `confirmation.py` | Confirmation-delayed signals: `confirmed_signal()` engine + convenience wrappers (`confirmed_hanging_man`, `confirmed_shooting_star`, `confirmed_inverted_hammer`, `confirmed_doji_at_top`, `confirmed_doji_at_bottom`, `confirmed_gravestone_doji`, `confirmed_harami`, `confirmed_harami_cross`); `CONFIRMATION_RULES` registry |
+
+### Price targets
+
+| Module | Source | Purpose |
+|---|---|---|
+| `targets.py` | Nison ch. 16 | `consolidation_boxes` — box/range breakout detection with projected targets; `pattern_sr_zones` — support/resistance zones from clustered pattern signals; `flag_targets` — flag/pennant continuation targets (pole height projection) |
+
 ### Plotting
 
 - `plot_exhibit_9_2.py` — runs all pattern detections on exhibit 9.2 data, overlays multi-scale trend background and trend-termination signals, saves `exhibit_9_2_patterns.png`
@@ -69,3 +82,6 @@ pytest tests/test_doji.py
 - **Multi-scale trend** (`trend.py`) provides four time-scales: micro (body runs, Nison-style 2+ consecutive same-color candles), short (regression slope), medium (order-1 pivots), long (order-2 pivots). `trend_terminations()` flags where reversal patterns fire against an active trend at any scale.
 - Trend is always measured at the **first candle of the pattern** (not the last) via `is_uptrend_by_pivots(df).shift(N)` to avoid contamination from the pattern's own bars. For window gaps, check trend at `t-1` (the bar before the gap).
 - **Never** initialize a signal Series with `pd.Series(None, index=..., dtype=object)` — this stores `float NaN`. Use `signal_series(df.index)` from `patterns._candle` instead, which returns `pd.Series([None] * len(df), index=df.index, dtype=object)`. Assign with `result[mask.fillna(False)] = "signal"`.
+- **Confirmation-delayed signals** (`patterns/confirmation.py`): Patterns like hanging man, shooting star, and doji require confirmation from the next session. The `confirmed_signal()` engine delays the signal to the confirmation bar (no lookahead). Confirmation types: `close_below_body`, `close_above_body`, `bearish_candle`, `bullish_candle`, `gap_down`, `gap_up`, `opposite_candle`.
+- **Pattern scoring** (`patterns/scoring.py`): Each pattern signal gets a 0.0–1.0 strength score combining shape quality (50%), volume confirmation (20%), and trend strength (30%). Shape scorers are registered in `_SHAPE_SCORERS`; use `pattern_strength(df, name, signal)` for the composite score.
+- **Price targets** (`targets.py`): Three methods — (1) consolidation box breakouts (target = breakout ± box height), (2) S/R zones from pattern clusters within 0.3% margin, (3) flag/pennant continuation (target = breakout + pole height). All are causal.
