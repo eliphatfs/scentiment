@@ -1,7 +1,9 @@
 """Load exhibit 9.2 crude oil data, run all pattern detections, and plot
-with multi-scale trend background and trend-termination signals."""
+with multi-scale trend background, trend-termination signals, confirmation
+markers, and pattern strength scores."""
 
 import pandas as pd
+import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -29,6 +31,12 @@ from patterns.continuation import (
     window_up, window_down, rising_three_methods, falling_three_methods,
     three_white_soldiers, separating_lines,
 )
+from patterns.confirmation import (
+    confirmed_hanging_man, confirmed_shooting_star, confirmed_inverted_hammer,
+    confirmed_doji_at_top, confirmed_doji_at_bottom, confirmed_gravestone_doji,
+    confirmed_harami, confirmed_harami_cross,
+)
+from patterns.scoring import pattern_strength
 from trend import multi_scale_trend, trend_terminations
 
 
@@ -41,26 +49,29 @@ if "volume" not in df.columns:
 df.columns = [c.lower() for c in df.columns]
 
 # ── Run all patterns ─────────────────────────────────────────────────────────
+# Patterns requiring confirmation (Nison: these are warnings, not signals,
+# until the next session confirms) use the confirmed_* wrappers.  The signal
+# is emitted on the confirmation bar, not the pattern bar.
 PATTERNS = {
     "hammer":               hammer(df),
-    "hanging_man":          hanging_man(df),
+    "hanging_man":          confirmed_hanging_man(df),
     "engulfing":            engulfing(df),
     "dark_cloud_cover":     dark_cloud_cover(df),
     "piercing_pattern":     piercing_pattern(df),
-    "inverted_hammer":      inverted_hammer(df),
-    "shooting_star":        shooting_star(df),
+    "inverted_hammer":      confirmed_inverted_hammer(df),
+    "shooting_star":        confirmed_shooting_star(df),
     "morning_star":         morning_star(df),
     "evening_star":         evening_star(df),
     "morning_doji_star":    morning_doji_star(df),
     "evening_doji_star":    evening_doji_star(df),
-    "doji_at_top":          doji_at_top(df),
-    "doji_at_bottom":       doji_at_bottom(df),
+    "doji_at_top":          confirmed_doji_at_top(df),
+    "doji_at_bottom":       confirmed_doji_at_bottom(df),
     "long_legged_doji":     long_legged_doji(df),
     "rickshaw_man":         rickshaw_man(df),
-    "gravestone_doji":      gravestone_doji(df),
+    "gravestone_doji":      confirmed_gravestone_doji(df),
     "tri_star":             tri_star(df),
-    "harami":               harami(df),
-    "harami_cross":         harami_cross(df),
+    "harami":               confirmed_harami(df),
+    "harami_cross":         confirmed_harami_cross(df),
     "tweezers_top":         tweezers_top(df),
     "tweezers_bottom":      tweezers_bottom(df),
     "belt_hold":            belt_hold(df),
@@ -81,6 +92,11 @@ PATTERNS = {
     "separating_lines":     separating_lines(df),
 }
 
+# ── Compute strength scores ─────────────────────────────────────────────────
+STRENGTHS = {}
+for name, sig in PATTERNS.items():
+    STRENGTHS[name] = pattern_strength(df, name, sig)
+
 # ── Multi-scale trend ────────────────────────────────────────────────────────
 scales = multi_scale_trend(df)
 terminations = trend_terminations(df, PATTERNS)
@@ -90,7 +106,9 @@ for name, sig in PATTERNS.items():
     hits = sig.dropna()
     if len(hits):
         for dt, val in hits.items():
-            print(f"  {dt.date()}  {name:25s}  {val}")
+            score = STRENGTHS[name].get(dt, float("nan"))
+            score_str = f"  strength={score:.2f}" if not np.isnan(score) else ""
+            print(f"  {dt.date()}  {name:25s}  {val}{score_str}")
 
 print(f"\nTrend termination signals ({len(terminations)}):")
 if len(terminations):
@@ -137,39 +155,59 @@ TERM_COLOR = "#9b59b6"  # purple for termination signals
 
 bullish_hits = {}
 bearish_hits = {}
+hit_strengths = {}  # (bar_index, direction) → max strength score
 for name, sig in PATTERNS.items():
     for dt, val in sig.dropna().items():
         i = dates.get_loc(dt)
+        score = STRENGTHS[name].get(dt, float("nan"))
         if val == "bullish":
             bullish_hits.setdefault(i, []).append(name.replace("_", " "))
+            key = (i, "bullish")
         elif val == "bearish":
             bearish_hits.setdefault(i, []).append(name.replace("_", " "))
+            key = (i, "bearish")
+        else:
+            continue
+        if not np.isnan(score):
+            hit_strengths[key] = max(hit_strengths.get(key, 0), score)
 
 for i, names in bullish_hits.items():
+    strength = hit_strengths.get((i, "bullish"), 0.5)
+    # Marker size scales with strength: 4 (weak) to 10 (strong)
+    msize = 4 + 6 * strength
+    # Build label with strength
+    label_parts = []
+    for n in names:
+        label_parts.append(n)
+    label_parts.append(f"[{strength:.0%}]")
     y = df.iloc[i]["low"] - 15
     ax.annotate(
-        "\n".join(names),
+        "\n".join(label_parts),
         xy=(i, df.iloc[i]["low"]),
-        xytext=(i, y - 5 * len(names)),
+        xytext=(i, y - 5 * len(label_parts)),
         fontsize=5.5, color=BULLISH_COLOR,
         ha="center", va="top",
         arrowprops=dict(arrowstyle="-", color=BULLISH_COLOR, lw=0.5),
     )
     ax.plot(i, df.iloc[i]["low"] - 8, "^",
-            color=BULLISH_COLOR, markersize=6, zorder=5)
+            color=BULLISH_COLOR, markersize=msize, zorder=5)
 
 for i, names in bearish_hits.items():
+    strength = hit_strengths.get((i, "bearish"), 0.5)
+    msize = 4 + 6 * strength
+    label_parts = list(names)
+    label_parts.append(f"[{strength:.0%}]")
     y = df.iloc[i]["high"] + 15
     ax.annotate(
-        "\n".join(names),
+        "\n".join(label_parts),
         xy=(i, df.iloc[i]["high"]),
-        xytext=(i, y + 5 * len(names)),
+        xytext=(i, y + 5 * len(label_parts)),
         fontsize=5.5, color=BEARISH_COLOR,
         ha="center", va="bottom",
         arrowprops=dict(arrowstyle="-", color=BEARISH_COLOR, lw=0.5),
     )
     ax.plot(i, df.iloc[i]["high"] + 8, "v",
-            color=BEARISH_COLOR, markersize=6, zorder=5)
+            color=BEARISH_COLOR, markersize=msize, zorder=5)
 
 # Mark trend termination signals with purple diamonds
 if len(terminations):
@@ -184,7 +222,7 @@ if len(terminations):
 ax.set_ylabel("Price (JPY/kl)", fontsize=10)
 ax.set_title(
     "Exhibit 9.2 — Crude Oil (TOCOM, JPY) Jan–Apr 1990\n"
-    "Patterns + multi-scale trend (green/red bg = pivot trend, "
+    "Confirmed patterns with strength scores (marker size = strength, "
     "purple diamond = trend termination)",
     fontsize=12,
 )
