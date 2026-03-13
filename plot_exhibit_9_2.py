@@ -180,23 +180,23 @@ for i, (dt, row) in enumerate(df.iterrows()):
     )
     ax.add_patch(rect)
 
-# Pattern annotations
+# Pattern annotations — unified per-bar collection
+# ──────────────────────────────────────────────────────────────────────────────
+# Each bar gets ONE annotation per direction (bullish below / bearish above).
+# Lines within that annotation are tagged with status:
+#   "pattern name"               — no confirmation needed (blue/orange)
+#   "pattern name (pending)"     — needs confirmation, not yet confirmed (grey)
+#   "✓ confirmed: pattern name"  — confirmed on this bar (green)
+
 BULLISH_COLOR = "#3498db"
 BEARISH_COLOR = "#e67e22"
-TERM_COLOR = "#9b59b6"  # purple for termination signals
+TERM_COLOR = "#9b59b6"
+PENDING_COLOR = "#95a5a6"   # grey for pending
+CONFIRMED_COLOR = "#27ae60"  # green for confirmed
 
-# Collect raw (pending) hits and confirmed hits separately
-bullish_hits = {}       # bar_idx → [pattern names] for patterns NOT needing confirmation
-bearish_hits = {}
-pending_bullish = {}    # bar_idx → [pattern names] for unconfirmed signals (needs confirmation)
-pending_bearish = {}
-confirmed_bullish = {}  # bar_idx → [pattern names] for confirmation bar annotations
-confirmed_bearish = {}
-hit_strengths = {}      # (bar_index, direction) → max strength score
-
-PENDING_COLOR_BULL = "#85c1e9"   # lighter blue for pending
-PENDING_COLOR_BEAR = "#f0b27a"   # lighter orange for pending
-CONFIRMED_COLOR = "#27ae60"      # green for "confirmed" label
+# annotation_lines[bar_idx]["bullish"|"bearish"] = [(label, color), ...]
+annotation_lines: dict[int, dict[str, list[tuple[str, str]]]] = {}
+hit_strengths: dict[tuple[int, str], float] = {}
 
 for name, sig in RAW_PATTERNS.items():
     needs_conf = name in NEEDS_CONFIRMATION
@@ -208,143 +208,88 @@ for name, sig in RAW_PATTERNS.items():
         score = STRENGTHS[name].get(dt, float("nan"))
         label = name.replace("_", " ")
 
-        if val == "bullish":
-            key = (i, "bullish")
-            if needs_conf:
-                pending_bullish.setdefault(i, []).append(label)
-                # Find confirmation bar
-                for k in range(1, 3):
-                    if i + k < len(df) and df.index[i + k] in confirmed_dates:
-                        confirmed_bullish.setdefault(i + k, []).append(label)
-                        break
-            else:
-                bullish_hits.setdefault(i, []).append(label)
-        elif val == "bearish":
-            key = (i, "bearish")
-            if needs_conf:
-                pending_bearish.setdefault(i, []).append(label)
-                for k in range(1, 3):
-                    if i + k < len(df) and df.index[i + k] in confirmed_dates:
-                        confirmed_bearish.setdefault(i + k, []).append(label)
-                        break
-            else:
-                bearish_hits.setdefault(i, []).append(label)
-        else:
+        if val not in ("bullish", "bearish"):
             continue
+        key = (i, val)
         if not np.isnan(score):
             hit_strengths[key] = max(hit_strengths.get(key, 0), score)
 
-# --- Plot pending (unconfirmed) signals: lighter color, hollow marker, "(pending)" ---
-for i, names in pending_bullish.items():
-    strength = hit_strengths.get((i, "bullish"), 0.5)
-    label_parts = [f"{n} (pending)" for n in names]
-    label_parts.append(f"[{strength:.0%}]")
-    y = df.iloc[i]["low"] - 15
-    ax.annotate(
-        "\n".join(label_parts),
-        xy=(i, df.iloc[i]["low"]),
-        xytext=(i, y - 5 * len(label_parts)),
-        fontsize=5.0, color=PENDING_COLOR_BULL,
-        ha="center", va="top",
-        arrowprops=dict(arrowstyle="-", color=PENDING_COLOR_BULL, lw=0.5),
-    )
-    ax.plot(i, df.iloc[i]["low"] - 8, "^",
-            color=PENDING_COLOR_BULL, markersize=5, zorder=5,
-            markeredgecolor=PENDING_COLOR_BULL, markerfacecolor="none", markeredgewidth=1.2)
+        bar_entry = annotation_lines.setdefault(i, {})
+        if needs_conf:
+            # On the pattern bar: show as pending
+            color = PENDING_COLOR
+            bar_entry.setdefault(val, []).append((f"{label} (pending)", color))
+            # On the confirmation bar: show as confirmed
+            for k in range(1, 3):
+                if i + k < len(df) and df.index[i + k] in confirmed_dates:
+                    conf_entry = annotation_lines.setdefault(i + k, {})
+                    conf_entry.setdefault(val, []).append(
+                        (f"\u2713 confirmed: {label}", CONFIRMED_COLOR)
+                    )
+                    break
+        else:
+            color = BULLISH_COLOR if val == "bullish" else BEARISH_COLOR
+            bar_entry.setdefault(val, []).append((label, color))
 
-for i, names in pending_bearish.items():
-    strength = hit_strengths.get((i, "bearish"), 0.5)
-    label_parts = [f"{n} (pending)" for n in names]
-    label_parts.append(f"[{strength:.0%}]")
-    y = df.iloc[i]["high"] + 15
-    ax.annotate(
-        "\n".join(label_parts),
-        xy=(i, df.iloc[i]["high"]),
-        xytext=(i, y + 5 * len(label_parts)),
-        fontsize=5.0, color=PENDING_COLOR_BEAR,
-        ha="center", va="bottom",
-        arrowprops=dict(arrowstyle="-", color=PENDING_COLOR_BEAR, lw=0.5),
-    )
-    ax.plot(i, df.iloc[i]["high"] + 8, "v",
-            color=PENDING_COLOR_BEAR, markersize=5, zorder=5,
-            markeredgecolor=PENDING_COLOR_BEAR, markerfacecolor="none", markeredgewidth=1.2)
+# Render one annotation per bar per direction
+for bar_idx, directions in sorted(annotation_lines.items()):
+    for direction, lines in directions.items():
+        if not lines:
+            continue
 
-# --- Plot confirmed signals: solid marker + "confirmed: <name>" ---
-for i, names in confirmed_bullish.items():
-    # Merge with any non-confirmation bullish hits at the same bar
-    all_names = bullish_hits.pop(i, [])
-    label_parts = [n for n in all_names]
-    for n in names:
-        label_parts.append(f"confirmed: {n}")
-    strength = hit_strengths.get((i, "bullish"), 0.5)
-    msize = 4 + 6 * strength
-    label_parts.append(f"[{strength:.0%}]")
-    y = df.iloc[i]["low"] - 15
-    ax.annotate(
-        "\n".join(label_parts),
-        xy=(i, df.iloc[i]["low"]),
-        xytext=(i, y - 5 * len(label_parts)),
-        fontsize=5.5, color=CONFIRMED_COLOR,
-        ha="center", va="top",
-        arrowprops=dict(arrowstyle="-", color=CONFIRMED_COLOR, lw=0.5),
-    )
-    ax.plot(i, df.iloc[i]["low"] - 8, "^",
-            color=CONFIRMED_COLOR, markersize=msize, zorder=5)
+        strength = hit_strengths.get((bar_idx, direction), 0.5)
+        msize = 4 + 6 * strength
 
-for i, names in confirmed_bearish.items():
-    all_names = bearish_hits.pop(i, [])
-    label_parts = [n for n in all_names]
-    for n in names:
-        label_parts.append(f"confirmed: {n}")
-    strength = hit_strengths.get((i, "bearish"), 0.5)
-    msize = 4 + 6 * strength
-    label_parts.append(f"[{strength:.0%}]")
-    y = df.iloc[i]["high"] + 15
-    ax.annotate(
-        "\n".join(label_parts),
-        xy=(i, df.iloc[i]["high"]),
-        xytext=(i, y + 5 * len(label_parts)),
-        fontsize=5.5, color=CONFIRMED_COLOR,
-        ha="center", va="bottom",
-        arrowprops=dict(arrowstyle="-", color=CONFIRMED_COLOR, lw=0.5),
-    )
-    ax.plot(i, df.iloc[i]["high"] + 8, "v",
-            color=CONFIRMED_COLOR, markersize=msize, zorder=5)
+        # Build multi-line label; append strength at the bottom
+        text_lines = [text for text, _ in lines]
+        text_lines.append(f"[{strength:.0%}]")
+        label_text = "\n".join(text_lines)
 
-# --- Plot remaining non-confirmation patterns (no confirmation needed) ---
-for i, names in bullish_hits.items():
-    strength = hit_strengths.get((i, "bullish"), 0.5)
-    msize = 4 + 6 * strength
-    label_parts = list(names)
-    label_parts.append(f"[{strength:.0%}]")
-    y = df.iloc[i]["low"] - 15
-    ax.annotate(
-        "\n".join(label_parts),
-        xy=(i, df.iloc[i]["low"]),
-        xytext=(i, y - 5 * len(label_parts)),
-        fontsize=5.5, color=BULLISH_COLOR,
-        ha="center", va="top",
-        arrowprops=dict(arrowstyle="-", color=BULLISH_COLOR, lw=0.5),
-    )
-    ax.plot(i, df.iloc[i]["low"] - 8, "^",
-            color=BULLISH_COLOR, markersize=msize, zorder=5)
+        # Pick dominant color: green if any confirmed, else the first line's color
+        colors_present = [c for _, c in lines]
+        if CONFIRMED_COLOR in colors_present:
+            ann_color = CONFIRMED_COLOR
+            marker_color = CONFIRMED_COLOR
+            marker_face = CONFIRMED_COLOR
+        elif all(c == PENDING_COLOR for c in colors_present):
+            ann_color = PENDING_COLOR
+            marker_color = PENDING_COLOR
+            marker_face = "none"  # hollow for pending-only
+        else:
+            ann_color = BULLISH_COLOR if direction == "bullish" else BEARISH_COLOR
+            marker_color = ann_color
+            marker_face = ann_color
 
-for i, names in bearish_hits.items():
-    strength = hit_strengths.get((i, "bearish"), 0.5)
-    msize = 4 + 6 * strength
-    label_parts = list(names)
-    label_parts.append(f"[{strength:.0%}]")
-    y = df.iloc[i]["high"] + 15
-    ax.annotate(
-        "\n".join(label_parts),
-        xy=(i, df.iloc[i]["high"]),
-        xytext=(i, y + 5 * len(label_parts)),
-        fontsize=5.5, color=BEARISH_COLOR,
-        ha="center", va="bottom",
-        arrowprops=dict(arrowstyle="-", color=BEARISH_COLOR, lw=0.5),
-    )
-    ax.plot(i, df.iloc[i]["high"] + 8, "v",
-            color=BEARISH_COLOR, markersize=msize, zorder=5)
+        n_lines = len(text_lines)
+
+        if direction == "bullish":
+            y = df.iloc[bar_idx]["low"] - 15
+            ax.annotate(
+                label_text,
+                xy=(bar_idx, df.iloc[bar_idx]["low"]),
+                xytext=(bar_idx, y - 5 * n_lines),
+                fontsize=5.5, color=ann_color,
+                ha="center", va="top",
+                arrowprops=dict(arrowstyle="-", color=ann_color, lw=0.5),
+            )
+            ax.plot(bar_idx, df.iloc[bar_idx]["low"] - 8, "^",
+                    color=marker_color, markerfacecolor=marker_face,
+                    markeredgecolor=marker_color, markeredgewidth=1.2,
+                    markersize=msize, zorder=5)
+        else:
+            y = df.iloc[bar_idx]["high"] + 15
+            ax.annotate(
+                label_text,
+                xy=(bar_idx, df.iloc[bar_idx]["high"]),
+                xytext=(bar_idx, y + 5 * n_lines),
+                fontsize=5.5, color=ann_color,
+                ha="center", va="bottom",
+                arrowprops=dict(arrowstyle="-", color=ann_color, lw=0.5),
+            )
+            ax.plot(bar_idx, df.iloc[bar_idx]["high"] + 8, "v",
+                    color=marker_color, markerfacecolor=marker_face,
+                    markeredgecolor=marker_color, markeredgewidth=1.2,
+                    markersize=msize, zorder=5)
 
 # Mark trend termination signals with purple diamonds
 if len(terminations):
@@ -366,13 +311,11 @@ ax.grid(axis="y", alpha=0.3)
 
 legend_elements = [
     Line2D([0], [0], marker="^", color="w", markerfacecolor=BULLISH_COLOR,
-           markersize=8, label="Bullish (no confirm needed)"),
+           markersize=8, label="Bullish signal"),
     Line2D([0], [0], marker="v", color="w", markerfacecolor=BEARISH_COLOR,
-           markersize=8, label="Bearish (no confirm needed)"),
-    Line2D([0], [0], marker="^", color=PENDING_COLOR_BULL, markerfacecolor="none",
-           markeredgewidth=1.2, markersize=7, label="Pending (awaiting confirm)"),
-    Line2D([0], [0], marker="v", color=PENDING_COLOR_BEAR, markerfacecolor="none",
-           markeredgewidth=1.2, markersize=7, label="Pending (awaiting confirm)"),
+           markersize=8, label="Bearish signal"),
+    Line2D([0], [0], marker="^", color=PENDING_COLOR, markerfacecolor="none",
+           markeredgewidth=1.2, markersize=7, label="Pending confirmation"),
     Line2D([0], [0], marker="^", color="w", markerfacecolor=CONFIRMED_COLOR,
            markersize=8, label="Confirmed"),
     Line2D([0], [0], marker="D", color="w", markerfacecolor=TERM_COLOR,
