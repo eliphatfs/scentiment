@@ -56,9 +56,16 @@ The project is Python-based (`ruff` for linting, `pytest` for testing). Planned 
 |---|---|---|
 | `targets.py` | Nison ch. 16 | `consolidation_boxes` — box/range breakout detection with projected targets; `pattern_sr_zones` — support/resistance zones from clustered pattern signals; `flag_targets` — flag/pennant continuation targets (pole height projection) |
 
+### Backtesting
+
+| Module | Purpose |
+|---|---|
+| `backtest.py` | Streaming backtest engine: processes data bar-by-bar (no lookahead), runs pattern detection incrementally, uses S/R zones for TP/SL, Kelly criterion for position sizing, exits on reversal signals. Two execution modes: `next_open` and `close_hack`. Includes `compute_alpha_beta()` for CAPM decomposition vs buy-and-hold, and equity curve plotting. |
+
 ### Plotting
 
 - `plot_exhibit_9_2.py` — runs all pattern detections on exhibit 9.2 data, overlays multi-scale trend background and trend-termination signals, saves `exhibit_9_2_patterns.png`
+- `backtest.py` (main) — runs backtest on SPY 2021-2022, plots equity curves vs buy-and-hold with alpha/beta metrics, saves `backtest_spy_2021_2022.png`
 
 ## Development Commands
 
