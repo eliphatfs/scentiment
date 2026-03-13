@@ -48,7 +48,7 @@ The project is Python-based (`ruff` for linting, `pytest` for testing). Planned 
 | Module | Purpose |
 |---|---|
 | `scoring.py` | Shape-quality scoring (0.0–1.0) for each pattern family, volume confirmation score, trend strength score, and composite `pattern_strength()` combiner |
-| `confirmation.py` | Confirmation-delayed signals: `confirmed_signal()` engine + convenience wrappers (`confirmed_hanging_man`, `confirmed_shooting_star`, `confirmed_inverted_hammer`, `confirmed_doji_at_top`, `confirmed_doji_at_bottom`, `confirmed_gravestone_doji`, `confirmed_harami`, `confirmed_harami_cross`); `CONFIRMATION_RULES` registry |
+| `confirmation.py` | Confirmation-delayed signals: `confirmed_signal()` engine + convenience wrappers (`confirmed_hanging_man`, `confirmed_shooting_star`, `confirmed_inverted_hammer`, `confirmed_doji_at_top`, `confirmed_doji_at_bottom`, `confirmed_gravestone_doji`); `CONFIRMATION_RULES` registry. Note: harami/harami_cross do NOT need confirmation — they are complete two-bar patterns where the second candle already demonstrates loss of momentum. |
 
 ### Price targets
 

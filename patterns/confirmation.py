@@ -45,8 +45,6 @@ CONFIRMATION_RULES: dict[str, tuple[str, int]] = {
     "gravestone_doji":  ("bearish_candle", 1),
     "long_legged_doji": ("opposite_candle", 1),
     "rickshaw_man":     ("opposite_candle", 1),
-    "harami":           ("opposite_candle", 1),
-    "harami_cross":     ("opposite_candle", 1),
 }
 
 
@@ -191,15 +189,3 @@ def confirmed_gravestone_doji(df: pd.DataFrame, **kwargs) -> pd.Series:
     return confirmed_signal(df, raw, "bearish_candle", max_wait=1)
 
 
-def confirmed_harami(df: pd.DataFrame, **kwargs) -> pd.Series:
-    """Harami with confirmation: next bar continues in reversal direction."""
-    from patterns.more_reversals import harami
-    raw = harami(df, **kwargs)
-    return confirmed_signal(df, raw, "opposite_candle", max_wait=1)
-
-
-def confirmed_harami_cross(df: pd.DataFrame, **kwargs) -> pd.Series:
-    """Harami cross with confirmation: next bar continues in reversal direction."""
-    from patterns.more_reversals import harami_cross
-    raw = harami_cross(df, **kwargs)
-    return confirmed_signal(df, raw, "opposite_candle", max_wait=1)

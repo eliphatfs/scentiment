@@ -34,7 +34,6 @@ from patterns.continuation import (
 from patterns.confirmation import (
     confirmed_hanging_man, confirmed_shooting_star, confirmed_inverted_hammer,
     confirmed_doji_at_top, confirmed_doji_at_bottom, confirmed_gravestone_doji,
-    confirmed_harami, confirmed_harami_cross,
 )
 from patterns.scoring import pattern_strength
 from trend import multi_scale_trend, trend_terminations
@@ -99,8 +98,6 @@ NEEDS_CONFIRMATION = {
     "doji_at_top":      confirmed_doji_at_top(df),
     "doji_at_bottom":   confirmed_doji_at_bottom(df),
     "gravestone_doji":  confirmed_gravestone_doji(df),
-    "harami":           confirmed_harami(df),
-    "harami_cross":     confirmed_harami_cross(df),
 }
 
 # PATTERNS = confirmed where available, raw otherwise (used for trend terminations)
