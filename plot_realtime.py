@@ -119,7 +119,18 @@ def fetch_ohlcv(symbol: str, outputsize: int, api_key: str) -> pd.DataFrame:
 
 # ── Pattern detection ────────────────────────────────────────────────────────
 
-def run_all_patterns(df):
+def run_all_patterns(df, match_tolerance=0.001):
+    """Run all pattern detectors.
+
+    Parameters
+    ----------
+    df : DataFrame
+        OHLCV data.
+    match_tolerance : float
+        Tolerance for "similar price" matching (tweezers, counterattack,
+        three mountains/rivers, separating lines).  Daily default is 0.001
+        (0.1%); callers can override for different time-scales.
+    """
     RAW = {
         "hammer":               hammer(df),
         "hanging_man":          hanging_man(df),
@@ -140,14 +151,14 @@ def run_all_patterns(df):
         "tri_star":             tri_star(df),
         "harami":               harami(df),
         "harami_cross":         harami_cross(df),
-        "tweezers_top":         tweezers_top(df),
-        "tweezers_bottom":      tweezers_bottom(df),
+        "tweezers_top":         tweezers_top(df, tolerance=match_tolerance),
+        "tweezers_bottom":      tweezers_bottom(df, tolerance=match_tolerance),
         "belt_hold":            belt_hold(df),
         "upside_gap_two_crows": upside_gap_two_crows(df),
         "three_black_crows":    three_black_crows(df),
-        "counterattack_lines":  counterattack_lines(df),
-        "three_mountains":      three_mountains(df),
-        "three_rivers":         three_rivers(df),
+        "counterattack_lines":  counterattack_lines(df, close_tolerance=match_tolerance),
+        "three_mountains":      three_mountains(df, tolerance=match_tolerance),
+        "three_rivers":         three_rivers(df, tolerance=match_tolerance),
         "dumpling_top":         dumpling_top(df),
         "fry_pan_bottom":       fry_pan_bottom(df),
         "tower_top":            tower_top(df),
@@ -157,7 +168,7 @@ def run_all_patterns(df):
         "rising_three_methods": rising_three_methods(df),
         "falling_three_methods":falling_three_methods(df),
         "three_white_soldiers": three_white_soldiers(df),
-        "separating_lines":     separating_lines(df),
+        "separating_lines":     separating_lines(df, open_tolerance=match_tolerance),
     }
     CONF = {
         "hanging_man":      confirmed_hanging_man(df),
@@ -442,5 +453,7 @@ if __name__ == "__main__":
         print("Not enough data to analyze.", file=sys.stderr)
         sys.exit(1)
 
-    RAW, CONF, PATTERNS, STRENGTHS = run_all_patterns(df)
+    # Tighter tolerance for intraday (0.1%) vs daily default (0.3% for
+    # three_mountains/rivers, 0.1% for tweezers/counterattack/separating)
+    RAW, CONF, PATTERNS, STRENGTHS = run_all_patterns(df, match_tolerance=0.001)
     plot_chart(df, args.symbol, RAW, CONF, PATTERNS, STRENGTHS)
