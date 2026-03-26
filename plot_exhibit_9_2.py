@@ -8,8 +8,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.lines import Line2D
-
 from patterns.reversal import (
     hammer, hanging_man, engulfing, dark_cloud_cover, piercing_pattern,
 )
@@ -306,21 +304,7 @@ ax.set_title(
 )
 ax.grid(axis="y", alpha=0.3)
 
-legend_elements = [
-    Line2D([0], [0], marker="^", color="w", markerfacecolor=BULLISH_COLOR,
-           markersize=8, label="Bullish signal"),
-    Line2D([0], [0], marker="v", color="w", markerfacecolor=BEARISH_COLOR,
-           markersize=8, label="Bearish signal"),
-    Line2D([0], [0], marker="^", color=PENDING_COLOR, markerfacecolor="none",
-           markeredgewidth=1.2, markersize=7, label="Pending confirmation"),
-    Line2D([0], [0], marker="^", color="w", markerfacecolor=CONFIRMED_COLOR,
-           markersize=8, label="Confirmed"),
-    Line2D([0], [0], marker="D", color="w", markerfacecolor=TERM_COLOR,
-           markersize=7, label="Trend termination"),
-    mpatches.Patch(color=TREND_COLORS["up"], alpha=0.4, label="Pivot uptrend"),
-    mpatches.Patch(color=TREND_COLORS["down"], alpha=0.4, label="Pivot downtrend"),
-]
-ax.legend(handles=legend_elements, loc="upper right", fontsize=7)
+
 
 # ── Bottom panel: multi-scale trend state ────────────────────────────────────
 SCALE_LABELS = {"micro": 0, "short": 1, "medium": 2, "long": 3}
