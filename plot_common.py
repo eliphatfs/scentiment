@@ -1,0 +1,487 @@
+"""Shared helpers for real-time plotting scripts.
+
+Provides API key loading, Twelve Data fetching, pattern detection,
+and the candlestick + trend chart plotter. Used by both the 5-min
+intraday and daily plotting scripts.
+"""
+
+import os
+import sys
+import json
+from urllib.request import urlopen, Request
+from urllib.error import HTTPError
+
+import pandas as pd
+import numpy as np
+import matplotlib.patches as mpatches
+from matplotlib.lines import Line2D
+
+from patterns.reversal import (
+    hammer, hanging_man, engulfing, dark_cloud_cover, piercing_pattern,
+)
+from patterns.stars import (
+    inverted_hammer, shooting_star, morning_star, evening_star,
+    morning_doji_star, evening_doji_star,
+)
+from patterns.doji import (
+    doji_at_top, doji_at_bottom, long_legged_doji, rickshaw_man,
+    gravestone_doji, tri_star,
+)
+from patterns.more_reversals import (
+    harami, harami_cross, tweezers_top, tweezers_bottom, belt_hold,
+    upside_gap_two_crows, three_black_crows, counterattack_lines,
+    three_mountains, three_rivers, dumpling_top, fry_pan_bottom,
+    tower_top, tower_bottom,
+)
+from patterns.continuation import (
+    window_up, window_down, rising_three_methods, falling_three_methods,
+    three_white_soldiers, separating_lines,
+)
+from patterns.confirmation import (
+    confirmed_hanging_man, confirmed_shooting_star, confirmed_inverted_hammer,
+    confirmed_doji_at_top, confirmed_doji_at_bottom, confirmed_gravestone_doji,
+)
+from patterns.scoring import pattern_strength
+from trend import multi_scale_trend, trend_terminations
+
+
+# ---------------------------------------------------------------------------
+# API key
+# ---------------------------------------------------------------------------
+
+def load_api_key() -> str:
+    """Read TWELVEDATA_API_KEY from environment or .env file."""
+    key = os.environ.get("TWELVEDATA_API_KEY")
+    if key:
+        return key
+    # Walk up from caller's directory to find .env
+    env_path = os.path.join(os.path.dirname(__file__) or ".", ".env")
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == "TWELVEDATA_API_KEY":
+                    return v.strip().strip("\"'")
+    print("Error: TWELVEDATA_API_KEY not found.", file=sys.stderr)
+    print("Set it in .env or as an environment variable.", file=sys.stderr)
+    sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Data fetching
+# ---------------------------------------------------------------------------
+
+def fetch_ohlcv(
+    symbol: str,
+    interval: str,
+    outputsize: int,
+    api_key: str,
+) -> pd.DataFrame:
+    """Fetch OHLCV bars from Twelve Data.
+
+    Parameters
+    ----------
+    symbol : str
+        Ticker symbol (e.g. "SPY", "AAPL").
+    interval : str
+        Bar interval (e.g. "5min", "1day").
+    outputsize : int
+        Number of bars to request (max 5000).
+    api_key : str
+        Twelve Data API key.
+    """
+    url = (
+        f"https://api.twelvedata.com/time_series"
+        f"?symbol={symbol}&interval={interval}&outputsize={outputsize}"
+        f"&apikey={api_key}&format=JSON"
+    )
+    req = Request(url, headers={"User-Agent": "candlestick-plotter/1.0"})
+    try:
+        with urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except HTTPError as e:
+        print(f"API error: {e.code} {e.reason}", file=sys.stderr)
+        sys.exit(1)
+
+    if "values" not in data:
+        msg = data.get("message", data.get("status", "unknown error"))
+        print(f"API error: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    rows = data["values"]
+    df = pd.DataFrame(rows)
+    df["datetime"] = pd.to_datetime(df["datetime"])
+    df = df.set_index("datetime").sort_index()
+    for col in ("open", "high", "low", "close", "volume"):
+        if col in df.columns:
+            df[col] = df[col].astype(float)
+    if "volume" not in df.columns:
+        df["volume"] = 0.0
+
+    print(f"Fetched {len(df)} bars for {symbol} ({interval}) "
+          f"({df.index[0]} → {df.index[-1]})")
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Pattern detection
+# ---------------------------------------------------------------------------
+
+def run_all_patterns(df, match_tolerance=0.001):
+    """Run all pattern detectors.
+
+    Parameters
+    ----------
+    df : DataFrame
+        OHLCV data.
+    match_tolerance : float
+        Tolerance for "similar price" matching (tweezers, counterattack,
+        three mountains/rivers, separating lines).
+        Intraday default: 0.001 (0.1%).
+        Daily charts should use 0.003 (0.3%) for three_mountains/rivers.
+    """
+    RAW = {
+        "hammer":               hammer(df),
+        "hanging_man":          hanging_man(df),
+        "engulfing":            engulfing(df),
+        "dark_cloud_cover":     dark_cloud_cover(df),
+        "piercing_pattern":     piercing_pattern(df),
+        "inverted_hammer":      inverted_hammer(df),
+        "shooting_star":        shooting_star(df),
+        "morning_star":         morning_star(df),
+        "evening_star":         evening_star(df),
+        "morning_doji_star":    morning_doji_star(df),
+        "evening_doji_star":    evening_doji_star(df),
+        "doji_at_top":          doji_at_top(df),
+        "doji_at_bottom":       doji_at_bottom(df),
+        "long_legged_doji":     long_legged_doji(df),
+        "rickshaw_man":         rickshaw_man(df),
+        "gravestone_doji":      gravestone_doji(df),
+        "tri_star":             tri_star(df),
+        "harami":               harami(df),
+        "harami_cross":         harami_cross(df),
+        "tweezers_top":         tweezers_top(df, tolerance=match_tolerance),
+        "tweezers_bottom":      tweezers_bottom(df, tolerance=match_tolerance),
+        "belt_hold":            belt_hold(df),
+        "upside_gap_two_crows": upside_gap_two_crows(df),
+        "three_black_crows":    three_black_crows(df),
+        "counterattack_lines":  counterattack_lines(df, close_tolerance=match_tolerance),
+        "three_mountains":      three_mountains(df, tolerance=match_tolerance),
+        "three_rivers":         three_rivers(df, tolerance=match_tolerance),
+        "dumpling_top":         dumpling_top(df),
+        "fry_pan_bottom":       fry_pan_bottom(df),
+        "tower_top":            tower_top(df),
+        "tower_bottom":         tower_bottom(df),
+        "window_up":            window_up(df),
+        "window_down":          window_down(df),
+        "rising_three_methods": rising_three_methods(df),
+        "falling_three_methods":falling_three_methods(df),
+        "three_white_soldiers": three_white_soldiers(df),
+        "separating_lines":     separating_lines(df, open_tolerance=match_tolerance),
+    }
+    CONF = {
+        "hanging_man":      confirmed_hanging_man(df),
+        "shooting_star":    confirmed_shooting_star(df),
+        "inverted_hammer":  confirmed_inverted_hammer(df),
+        "doji_at_top":      confirmed_doji_at_top(df),
+        "doji_at_bottom":   confirmed_doji_at_bottom(df),
+        "gravestone_doji":  confirmed_gravestone_doji(df),
+    }
+    PATTERNS = {name: CONF.get(name, sig) for name, sig in RAW.items()}
+    STRENGTHS = {name: pattern_strength(df, name, sig) for name, sig in RAW.items()}
+    return RAW, CONF, PATTERNS, STRENGTHS
+
+
+# ---------------------------------------------------------------------------
+# Signal printing
+# ---------------------------------------------------------------------------
+
+def print_signals(df, RAW, CONF, STRENGTHS):
+    """Print detected signals to stdout. Returns signal count."""
+    n_signals = 0
+    for name, sig in RAW.items():
+        hits = sig.dropna()
+        if not len(hits):
+            continue
+        confirmed_sig = CONF.get(name)
+        for dt, val in hits.items():
+            n_signals += 1
+            score = STRENGTHS[name].get(dt, float("nan"))
+            score_str = f"  strength={score:.2f}" if not np.isnan(score) else ""
+            if confirmed_sig is not None:
+                conf_dates = set(confirmed_sig.dropna().index)
+                status = "  (needs confirmation)"
+                print(f"  {dt}  {name:25s}  {val}{score_str}{status}")
+                idx = df.index.get_loc(dt)
+                for k in range(1, 3):
+                    if idx + k < len(df):
+                        cdt = df.index[idx + k]
+                        if cdt in conf_dates:
+                            print(f"  {cdt}  {'':25s}  ↳ CONFIRMED")
+                            break
+            else:
+                print(f"  {dt}  {name:25s}  {val}{score_str}")
+    print(f"\n{n_signals} signals detected")
+    return n_signals
+
+
+# ---------------------------------------------------------------------------
+# Chart plotting
+# ---------------------------------------------------------------------------
+
+BULLISH_COLOR = "#3498db"
+BEARISH_COLOR = "#e67e22"
+TERM_COLOR = "#9b59b6"
+PENDING_COLOR = "#95a5a6"
+CONFIRMED_COLOR = "#27ae60"
+TREND_COLORS = {"up": "#d4efdf", "down": "#fadbd8"}
+
+
+def plot_chart(
+    df, symbol, RAW, CONF, PATTERNS, STRENGTHS,
+    *,
+    interval_label: str = "5-min bars",
+    date_fmt: str = "%Y-%m-%d %H:%M",
+    tick_fmt: str = "%m/%d\n%H:%M",
+    tick_test=None,
+    out_prefix: str = "realtime",
+):
+    """Plot candlestick chart with patterns, confirmation flow, and trends.
+
+    Parameters
+    ----------
+    interval_label : str
+        Label for the chart subtitle (e.g. "5-min bars", "daily bars").
+    date_fmt : str
+        strftime format for the title date range.
+    tick_fmt : str
+        strftime format for x-axis tick labels.
+    tick_test : callable or None
+        Function(i, dt, prev_state) -> (bool, new_state) that decides
+        whether to place a tick at position i.  If None, uses hourly ticks.
+    out_prefix : str
+        Output filename prefix: "{out_prefix}_{symbol}.png".
+    """
+    import matplotlib.pyplot as plt
+
+    scales = multi_scale_trend(df)
+    terminations = trend_terminations(df, PATTERNS)
+    dates = df.index
+    price_range = df["high"].max() - df["low"].min()
+    marker_offset = price_range * 0.02
+    text_offset = price_range * 0.04
+    text_spacing = price_range * 0.015
+    term_offset = price_range * 0.05
+
+    # Print signals
+    print_signals(df, RAW, CONF, STRENGTHS)
+
+    if len(terminations):
+        print(f"\nTrend termination signals ({len(terminations)}):")
+        for _, row in terminations.iterrows():
+            print(f"  {row['date']}  {row['pattern']:25s}  "
+                  f"{row['signal']} vs {row['scale']} {row['trend_direction']}")
+
+    # Build figure
+    fig, axes = plt.subplots(
+        2, 1, figsize=(20, 12), height_ratios=[3, 1],
+        sharex=True, gridspec_kw={"hspace": 0.05},
+    )
+    ax = axes[0]
+    ax_trend = axes[1]
+
+    # Trend background
+    for i, dt in enumerate(dates):
+        med = scales.loc[dt, "medium"]
+        if med in TREND_COLORS:
+            ax.axvspan(i - 0.5, i + 0.5, color=TREND_COLORS[med], alpha=0.4, zorder=0)
+
+    # Candlesticks
+    body_width = 0.7
+    for i, (dt, row) in enumerate(df.iterrows()):
+        o, h, l, c = row["open"], row["high"], row["low"], row["close"]
+        color = "#2ecc71" if c >= o else "#e74c3c"
+        ax.plot([i, i], [l, h], color=color, linewidth=0.8, zorder=2)
+        body_lo, body_hi = min(o, c), max(o, c)
+        rect = mpatches.FancyBboxPatch(
+            (i - body_width / 2, body_lo), body_width,
+            max(body_hi - body_lo, price_range * 0.001),
+            boxstyle="square,pad=0",
+            linewidth=0.5, edgecolor=color, facecolor=color, zorder=3,
+        )
+        ax.add_patch(rect)
+
+    # Pattern annotations
+    annotation_lines: dict[int, dict[str, list[tuple[str, str]]]] = {}
+    hit_strengths: dict[tuple[int, str], float] = {}
+
+    for name, sig in RAW.items():
+        needs_conf = name in CONF
+        confirmed_sig = CONF.get(name)
+        confirmed_dates = set(confirmed_sig.dropna().index) if confirmed_sig is not None else set()
+
+        for dt, val in sig.dropna().items():
+            i = dates.get_loc(dt)
+            score = STRENGTHS[name].get(dt, float("nan"))
+            label = name.replace("_", " ")
+            if val not in ("bullish", "bearish"):
+                continue
+            key = (i, val)
+            if not np.isnan(score):
+                hit_strengths[key] = max(hit_strengths.get(key, 0), score)
+
+            bar_entry = annotation_lines.setdefault(i, {})
+            if needs_conf:
+                bar_entry.setdefault(val, []).append((f"{label} (pending)", PENDING_COLOR))
+                for k in range(1, 3):
+                    if i + k < len(df) and df.index[i + k] in confirmed_dates:
+                        conf_entry = annotation_lines.setdefault(i + k, {})
+                        conf_entry.setdefault(val, []).append(
+                            (f"\u2713 confirmed: {label}", CONFIRMED_COLOR)
+                        )
+                        break
+            else:
+                c = BULLISH_COLOR if val == "bullish" else BEARISH_COLOR
+                bar_entry.setdefault(val, []).append((label, c))
+
+    for bar_idx, directions in sorted(annotation_lines.items()):
+        for direction, lines in directions.items():
+            if not lines:
+                continue
+
+            strength = hit_strengths.get((bar_idx, direction), 0.5)
+            msize = 4 + 6 * strength
+
+            text_lines = [text for text, _ in lines]
+            text_lines.append(f"[{strength:.0%}]")
+            label_text = "\n".join(text_lines)
+
+            colors_present = [c for _, c in lines]
+            if CONFIRMED_COLOR in colors_present:
+                ann_color = marker_color = marker_face = CONFIRMED_COLOR
+            elif all(c == PENDING_COLOR for c in colors_present):
+                ann_color = marker_color = PENDING_COLOR
+                marker_face = "none"
+            else:
+                ann_color = BULLISH_COLOR if direction == "bullish" else BEARISH_COLOR
+                marker_color = marker_face = ann_color
+
+            n_lines = len(text_lines)
+
+            if direction == "bullish":
+                y = df.iloc[bar_idx]["low"] - text_offset
+                ax.annotate(
+                    label_text,
+                    xy=(bar_idx, df.iloc[bar_idx]["low"]),
+                    xytext=(bar_idx, y - text_spacing * n_lines),
+                    fontsize=5.5, color=ann_color,
+                    ha="center", va="top",
+                    arrowprops=dict(arrowstyle="-", color=ann_color, lw=0.5),
+                )
+                ax.plot(bar_idx, df.iloc[bar_idx]["low"] - marker_offset, "^",
+                        color=marker_color, markerfacecolor=marker_face,
+                        markeredgecolor=marker_color, markeredgewidth=1.2,
+                        markersize=msize, zorder=5)
+            else:
+                y = df.iloc[bar_idx]["high"] + text_offset
+                ax.annotate(
+                    label_text,
+                    xy=(bar_idx, df.iloc[bar_idx]["high"]),
+                    xytext=(bar_idx, y + text_spacing * n_lines),
+                    fontsize=5.5, color=ann_color,
+                    ha="center", va="bottom",
+                    arrowprops=dict(arrowstyle="-", color=ann_color, lw=0.5),
+                )
+                ax.plot(bar_idx, df.iloc[bar_idx]["high"] + marker_offset, "v",
+                        color=marker_color, markerfacecolor=marker_face,
+                        markeredgecolor=marker_color, markeredgewidth=1.2,
+                        markersize=msize, zorder=5)
+
+    # Trend termination diamonds
+    if len(terminations):
+        term_set = set()
+        for _, row in terminations.iterrows():
+            i = dates.get_loc(row["date"])
+            if i not in term_set:
+                term_set.add(i)
+                ax.plot(i, df.iloc[i]["high"] + term_offset, "D",
+                        color=TERM_COLOR, markersize=7, zorder=6)
+
+    ax.set_ylabel("Price ($)", fontsize=10)
+    date_range = f"{dates[0].strftime(date_fmt)} → {dates[-1].strftime(date_fmt)}"
+    ax.set_title(
+        f"{symbol} — {interval_label} — {date_range}\n"
+        f"Patterns with confirmation flow and strength scores",
+        fontsize=12,
+    )
+    ax.grid(axis="y", alpha=0.3)
+
+    legend_elements = [
+        Line2D([0], [0], marker="^", color="w", markerfacecolor=BULLISH_COLOR,
+               markersize=8, label="Bullish signal"),
+        Line2D([0], [0], marker="v", color="w", markerfacecolor=BEARISH_COLOR,
+               markersize=8, label="Bearish signal"),
+        Line2D([0], [0], marker="^", color=PENDING_COLOR, markerfacecolor="none",
+               markeredgewidth=1.2, markersize=7, label="Pending confirmation"),
+        Line2D([0], [0], marker="^", color="w", markerfacecolor=CONFIRMED_COLOR,
+               markersize=8, label="Confirmed"),
+        Line2D([0], [0], marker="D", color="w", markerfacecolor=TERM_COLOR,
+               markersize=7, label="Trend termination"),
+        mpatches.Patch(color=TREND_COLORS["up"], alpha=0.4, label="Pivot uptrend"),
+        mpatches.Patch(color=TREND_COLORS["down"], alpha=0.4, label="Pivot downtrend"),
+    ]
+    ax.legend(handles=legend_elements, loc="upper right", fontsize=7)
+
+    # Bottom panel: multi-scale trend
+    SCALE_LABELS = {"micro": 0, "short": 1, "medium": 2, "long": 3}
+    SCALE_NAMES = {
+        "micro": "Micro (body runs)",
+        "short": "Short (reg. slope)",
+        "medium": "Medium (order 1)",
+        "long": "Long (order 2)",
+    }
+    for scale_name, y_pos in SCALE_LABELS.items():
+        for i, dt in enumerate(dates):
+            val = scales.loc[dt, scale_name]
+            if val == "up":
+                c = "#27ae60"
+            elif val == "down":
+                c = "#c0392b"
+            else:
+                c = "#bdc3c7"
+            alpha = 0.7 if val in ("up", "down") else 0.3
+            ax_trend.barh(y_pos, 1, left=i - 0.5, height=0.7,
+                          color=c, alpha=alpha, linewidth=0)
+
+    ax_trend.set_yticks(list(SCALE_LABELS.values()))
+    ax_trend.set_yticklabels([SCALE_NAMES[k] for k in SCALE_LABELS], fontsize=8)
+    ax_trend.set_ylabel("Trend scale", fontsize=10)
+    ax_trend.set_ylim(-0.5, 3.5)
+
+    # X-axis ticks
+    tick_positions, tick_labels = [], []
+    prev_state = None
+    for i, dt in enumerate(dates):
+        if tick_test is not None:
+            place, prev_state = tick_test(i, dt, prev_state)
+        else:
+            # Default: hourly ticks for intraday
+            hour_lbl = dt.strftime("%m/%d %H:00")
+            place = (hour_lbl != prev_state and dt.minute < 5)
+            prev_state = hour_lbl
+        if place:
+            tick_positions.append(i)
+            tick_labels.append(dt.strftime(tick_fmt))
+    ax_trend.set_xticks(tick_positions)
+    ax_trend.set_xticklabels(tick_labels, fontsize=7)
+    ax_trend.set_xlim(-1, len(df))
+    ax_trend.grid(axis="x", alpha=0.3)
+
+    plt.tight_layout()
+    out = f"{out_prefix}_{symbol.lower()}.png"
+    plt.savefig(out, dpi=150)
+    print(f"\nSaved → {out}")
+    return out

@@ -60,12 +60,17 @@ The project is Python-based (`ruff` for linting, `pytest` for testing). Planned 
 
 | Module | Purpose |
 |---|---|
-| `backtest.py` | Streaming backtest engine: processes data bar-by-bar (no lookahead), runs pattern detection incrementally, uses S/R zones for TP/SL, Kelly criterion for position sizing, exits on reversal signals. Two execution modes: `next_open` and `close_hack`. Includes `compute_alpha_beta()` for CAPM decomposition vs buy-and-hold, and equity curve plotting. |
+| `backtest.py` | Streaming candlestick-pattern backtest engine: processes data bar-by-bar (no lookahead), runs pattern detection via `_analyze_bar()` (shared compute for signals + S/R zones), Kelly criterion for position sizing (cap 0.40, min R:R 1.0), exits on reversal signals. `close_hack` execution mode. Includes `compute_alpha_beta()` for CAPM decomposition vs buy-and-hold, and equity curve plotting. |
+| `supertrend.py` | Supertrend(ATR period, multiplier) indicator + long-only backtest. Computes trailing ATR bands, trend direction, buy/sell signals on trend flips. Plots price with Supertrend bands and equity curve vs buy-and-hold. |
 
 ### Plotting
 
-- `plot_exhibit_9_2.py` — runs all pattern detections on exhibit 9.2 data, overlays multi-scale trend background and trend-termination signals, saves `exhibit_9_2_patterns.png`
-- `backtest.py` (main) — runs backtest on SPY 2021-2022, plots equity curves vs buy-and-hold with alpha/beta metrics, saves `backtest_spy_2021_2022.png`
+| Module | Purpose |
+|---|---|
+| `plot_common.py` | Shared helpers for real-time plotting: `load_api_key()` (reads from `.env` or env var), `fetch_ohlcv(symbol, interval, outputsize, api_key)` (Twelve Data API), `run_all_patterns(df, match_tolerance)`, `plot_chart()` (candlesticks + pattern annotations + multi-scale trend panel). Parameterized for different intervals and tick formats. |
+| `plot_realtime.py` | 5-min intraday chart via Twelve Data API. Uses `match_tolerance=0.001` (0.1%). Usage: `python plot_realtime.py [SYMBOL] [DAYS]` |
+| `plot_daily.py` | Daily chart via Twelve Data API, default 6 months. Uses daily default tolerances. Usage: `python plot_daily.py [SYMBOL] [MONTHS]` |
+| `plot_exhibit_9_2.py` | Runs all pattern detections on exhibit 9.2 data (static CSV), overlays multi-scale trend background and trend-termination signals, saves `exhibit_9_2_patterns.png` |
 
 ## Development Commands
 
@@ -78,6 +83,14 @@ pytest
 
 # Run a single test file
 pytest tests/test_doji.py
+
+# Real-time plots (requires TWELVEDATA_API_KEY in .env)
+python plot_realtime.py SPY 3       # 5-min bars, 3 trading days
+python plot_daily.py SPY 6          # daily bars, 6 months
+
+# Backtests
+python backtest.py                  # candlestick pattern strategy on SPY 2021-2022
+python supertrend.py                # supertrend strategy on SPY 2021-2022
 ```
 
 ## Key Conventions
@@ -92,3 +105,5 @@ pytest tests/test_doji.py
 - **Confirmation-delayed signals** (`patterns/confirmation.py`): Patterns like hanging man, shooting star, and doji require confirmation from the next session. The `confirmed_signal()` engine delays the signal to the confirmation bar (no lookahead). Confirmation types: `close_below_body`, `close_above_body`, `bearish_candle`, `bullish_candle`, `gap_down`, `gap_up`, `opposite_candle`.
 - **Pattern scoring** (`patterns/scoring.py`): Each pattern signal gets a 0.0–1.0 strength score combining shape quality (50%), volume confirmation (20%), and trend strength (30%). Shape scorers are registered in `_SHAPE_SCORERS`; use `pattern_strength(df, name, signal)` for the composite score.
 - **Price targets** (`targets.py`): Three methods — (1) consolidation box breakouts (target = breakout ± box height), (2) S/R zones from pattern clusters within 0.3% margin, (3) flag/pennant continuation (target = breakout + pole height). All are causal.
+- **Match tolerance** for "similar price" patterns (tweezers, counterattack, three mountains/rivers, separating lines) is parameterized via `match_tolerance` in `run_all_patterns()`. Intraday (5-min) uses 0.001 (0.1%); daily charts use function defaults (0.001 for most, 0.003 for three_mountains/rivers).
+- **Twelve Data API key** stored in `.env` (gitignored): `TWELVEDATA_API_KEY=your_key`. Read by `plot_common.load_api_key()`.
