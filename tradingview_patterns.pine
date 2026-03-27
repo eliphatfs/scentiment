@@ -631,6 +631,8 @@ var float  bullScore = 0.0
 var float  bearScore = 0.0
 var int    bullCount = 0
 var int    bearCount = 0
+var bool   bullAllPending = true
+var bool   bearAllPending = true
 
 bullLabel := ""
 bearLabel := ""
@@ -638,6 +640,8 @@ bullScore := 0.0
 bearScore := 0.0
 bullCount := 0
 bearCount := 0
+bullAllPending := true
+bearAllPending := true
 
 addBull(name, score) =>
     [bullLabel + (bullCount > 0 ? "\n" : "") + name,
@@ -650,13 +654,13 @@ addBear(name, score) =>
 // ── Bullish patterns ─────────────────────────────────────────────────
 if pHammer
     [l, s, c] = addBull("hammer", composite(hammerShapeScore()))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pEngulfBull
     [l, s, c] = addBull("engulfing", composite(engulfShapeScore()))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pPiercing
     [l, s, c] = addBull("piercing", composite(0.5))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pInvHammer
     s = composite(invertedShapeScore())
     conf = i_showConf ? " (pending)" : ""
@@ -664,13 +668,13 @@ if pInvHammer
     bullLabel := l, bullScore := sc, bullCount := ct
 if confInvHammer
     [l, s, c] = addBull("✓ inv hammer", composite(invertedShapeScore()[1]))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pMorningStar
     [l, s, c] = addBull("morning star", composite(0.6))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pMorningDojiStar
     [l, s, c] = addBull("morning doji star", composite(0.7))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pDojiBot
     s = composite(dojiShapeScore())
     conf = i_showConf ? " (pending)" : ""
@@ -678,52 +682,52 @@ if pDojiBot
     bullLabel := l, bullScore := sc, bullCount := ct
 if confDojiBot
     [l, s, c] = addBull("✓ doji bottom", composite(dojiShapeScore()[1]))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pLongLegBull
     [l, s, c] = addBull("long-leg doji", composite(dojiShapeScore()))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pRickBull
     [l, s, c] = addBull("rickshaw man", composite(dojiShapeScore()))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pTriStarBull
     [l, s, c] = addBull("tri-star", composite(0.7))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pHaramiBull
     [l, s, c] = addBull("harami", composite(0.5))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pHaramiXBull
     [l, s, c] = addBull("harami cross", composite(0.6))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pTweezersBot
     [l, s, c] = addBull("tweezers bottom", composite(0.5))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pBeltBull
     [l, s, c] = addBull("belt hold", composite(0.5))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pCounterBull
     [l, s, c] = addBull("counterattack", composite(0.5))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pSepBull
     [l, s, c] = addBull("separating", composite(0.5))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pWindowUp
     [l, s, c] = addBull("window up", composite(0.5))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pRising3
     [l, s, c] = addBull("rising 3 methods", composite(0.6))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pThreeWhiteSoldiers
     [l, s, c] = addBull("3 white soldiers", composite(0.7))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pThreeRivers
     [l, s, c] = addBull("three rivers", composite(0.5))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pFryPanBot
     [l, s, c] = addBull("fry pan bottom", composite(0.5))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 if pTowerBot
     [l, s, c] = addBull("tower bottom", composite(0.6))
-    bullLabel := l, bullScore := s, bullCount := c
+    bullLabel := l, bullScore := s, bullCount := c, bullAllPending := false
 
 // ── Bearish patterns ─────────────────────────────────────────────────
 if pHangingMan
@@ -733,13 +737,13 @@ if pHangingMan
     bearLabel := l, bearScore := sc, bearCount := ct
 if confHangingMan
     [l, s, c] = addBear("✓ hanging man", composite(hammerShapeScore()[1]))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pEngulfBear
     [l, s, c] = addBear("engulfing", composite(engulfShapeScore()))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pDarkCloud
     [l, s, c] = addBear("dark cloud", composite(0.5))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pShootingStar
     s = composite(invertedShapeScore())
     conf = i_showConf ? " (pending)" : ""
@@ -747,13 +751,13 @@ if pShootingStar
     bearLabel := l, bearScore := sc, bearCount := ct
 if confShootingStar
     [l, s, c] = addBear("✓ shooting star", composite(invertedShapeScore()[1]))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pEveningStar
     [l, s, c] = addBear("evening star", composite(0.6))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pEveningDojiStar
     [l, s, c] = addBear("evening doji star", composite(0.7))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pDojiTop
     s = composite(dojiShapeScore())
     conf = i_showConf ? " (pending)" : ""
@@ -761,7 +765,7 @@ if pDojiTop
     bearLabel := l, bearScore := sc, bearCount := ct
 if confDojiTop
     [l, s, c] = addBear("✓ doji top", composite(dojiShapeScore()[1]))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pGravestone
     s = composite(dojiShapeScore())
     conf = i_showConf ? " (pending)" : ""
@@ -769,55 +773,55 @@ if pGravestone
     bearLabel := l, bearScore := sc, bearCount := ct
 if confGravestone
     [l, s, c] = addBear("✓ gravestone", composite(dojiShapeScore()[1]))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pLongLegBear
     [l, s, c] = addBear("long-leg doji", composite(dojiShapeScore()))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pRickBear
     [l, s, c] = addBear("rickshaw man", composite(dojiShapeScore()))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pTriStarBear
     [l, s, c] = addBear("tri-star", composite(0.7))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pHaramiBear
     [l, s, c] = addBear("harami", composite(0.5))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pHaramiXBear
     [l, s, c] = addBear("harami cross", composite(0.6))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pTweezersTop
     [l, s, c] = addBear("tweezers top", composite(0.5))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pBeltBear
     [l, s, c] = addBear("belt hold", composite(0.5))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pUGTwoCrows
     [l, s, c] = addBear("upside gap 2 crows", composite(0.5))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pThreeBlackCrows
     [l, s, c] = addBear("3 black crows", composite(0.7))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pCounterBear
     [l, s, c] = addBear("counterattack", composite(0.5))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pSepBear
     [l, s, c] = addBear("separating", composite(0.5))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pWindowDown
     [l, s, c] = addBear("window down", composite(0.5))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pFalling3
     [l, s, c] = addBear("falling 3 methods", composite(0.6))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pThreeMountains
     [l, s, c] = addBear("three mountains", composite(0.5))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pDumplingTop
     [l, s, c] = addBear("dumpling top", composite(0.5))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 if pTowerTop
     [l, s, c] = addBear("tower top", composite(0.6))
-    bearLabel := l, bearScore := s, bearCount := c
+    bearLabel := l, bearScore := s, bearCount := c, bearAllPending := false
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -872,34 +876,36 @@ _placePivotLow(int pivotBar, string sym, color clr, string sz) =>
 
 // Order 1 fires first — may be superseded later by order 2 or 3
 if not na(ph1)
-    _placePivotHigh(ph1Bar, "▿", color.new(color.red, 40), size.tiny)
+    _placePivotHigh(ph1Bar, "▿", color.new(color.red, 40), size.small)
 if not na(pl1)
-    _placePivotLow(pl1Bar, "▵", color.new(color.green, 40), size.tiny)
+    _placePivotLow(pl1Bar, "▵", color.new(color.green, 40), size.small)
 
 // Order 2 fires when next order-1 confirms — deletes order-1 label at same bar
 if newPH2
-    _placePivotHigh(ph2Bar, "▽", color.new(color.red, 10), size.normal)
+    _placePivotHigh(ph2Bar, "▽", color.new(color.red, 10), size.large)
 if newPL2
-    _placePivotLow(pl2Bar, "△", color.new(color.green, 10), size.normal)
+    _placePivotLow(pl2Bar, "△", color.new(color.green, 10), size.large)
 
 // Order 3 fires when next order-2 confirms — deletes order-2 label at same bar
 if newPH3
-    _placePivotHigh(ph3Bar, "▼", color.red, size.large)
+    _placePivotHigh(ph3Bar, "▼", color.red, size.huge)
 if newPL3
-    _placePivotLow(pl3Bar, "▲", color.green, size.large)
+    _placePivotLow(pl3Bar, "▲", color.green, size.huge)
 
 // ── Pattern labels ───────────────────────────────────────────────────
 if i_showPatterns and bullCount > 0
     txt = bullLabel + "\n[" + str.tostring(bullScore * 100, "#") + "%]"
+    clr = bullAllPending ? color.gray : color.blue
     label.new(bar_index, low, txt,
          style=label.style_none,
-         textcolor=color.blue, size=size.small, yloc=yloc.belowbar)
+         textcolor=clr, size=size.small, yloc=yloc.belowbar)
 
 if i_showPatterns and bearCount > 0
     txt = bearLabel + "\n[" + str.tostring(bearScore * 100, "#") + "%]"
+    clr = bearAllPending ? color.gray : color.orange
     label.new(bar_index, high, txt,
          style=label.style_none,
-         textcolor=color.orange, size=size.small, yloc=yloc.abovebar)
+         textcolor=clr, size=size.small, yloc=yloc.abovebar)
 
 // ── Multi-scale trend table ──────────────────────────────────────────
 trendColor(val) => val == 1 ? color.green : val == -1 ? color.red : color.gray
