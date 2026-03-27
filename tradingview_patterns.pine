@@ -850,10 +850,9 @@ _placePivotHigh(int pivotBar, color clr, string sz) =>
                     label.delete(array.get(pvhLabels, idx))
                     array.remove(pvhBars, idx)
                     array.remove(pvhLabels, idx)
-        int offset = bar_index - pivotBar
-        lbl = label.new(pivotBar, high[offset], "",
+        lbl = label.new(pivotBar, na, "",
              style=label.style_triangledown, color=clr,
-             size=sz, yloc=yloc.price)
+             size=sz, yloc=yloc.abovebar)
         array.push(pvhBars, pivotBar)
         array.push(pvhLabels, lbl)
         if array.size(pvhBars) > 200
@@ -868,10 +867,9 @@ _placePivotLow(int pivotBar, color clr, string sz) =>
                     label.delete(array.get(pvlLabels, idx))
                     array.remove(pvlBars, idx)
                     array.remove(pvlLabels, idx)
-        int offset = bar_index - pivotBar
-        lbl = label.new(pivotBar, low[offset], "",
+        lbl = label.new(pivotBar, na, "",
              style=label.style_triangleup, color=clr,
-             size=sz, yloc=yloc.price)
+             size=sz, yloc=yloc.belowbar)
         array.push(pvlBars, pivotBar)
         array.push(pvlLabels, lbl)
         if array.size(pvlBars) > 200
@@ -880,21 +878,21 @@ _placePivotLow(int pivotBar, color clr, string sz) =>
 
 // Order 1 fires first — may be superseded later by order 2 or 3
 if not na(ph1)
-    _placePivotHigh(ph1Bar, color.new(color.red, 40), size.small)
+    _placePivotHigh(ph1Bar, color.new(color.red, 10), size.tiny)
 if not na(pl1)
-    _placePivotLow(pl1Bar, color.new(color.green, 40), size.small)
+    _placePivotLow(pl1Bar, color.new(color.green, 10), size.tiny)
 
 // Order 2 fires when next order-1 confirms — deletes order-1 label at same bar
 if newPH2
-    _placePivotHigh(ph2Bar, color.new(color.red, 10), size.normal)
+    _placePivotHigh(ph2Bar, color.new(color.red, 10), size.small)
 if newPL2
-    _placePivotLow(pl2Bar, color.new(color.green, 10), size.normal)
+    _placePivotLow(pl2Bar, color.new(color.green, 10), size.small)
 
 // Order 3 fires when next order-2 confirms — deletes order-2 label at same bar
 if newPH3
-    _placePivotHigh(ph3Bar, color.red, size.large)
+    _placePivotHigh(ph3Bar, color.new(color.red, 10), size.normal)
 if newPL3
-    _placePivotLow(pl3Bar, color.green, size.large)
+    _placePivotLow(pl3Bar, color.new(color.green, 10), size.normal)
 
 // ── Pattern labels ───────────────────────────────────────────────────
 // Pattern text with background fill so it renders in front of candles.
