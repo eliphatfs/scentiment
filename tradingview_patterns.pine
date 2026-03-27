@@ -890,9 +890,9 @@ if newPL2
 
 // Order 3 fires when next order-2 confirms — deletes order-2 label at same bar
 if newPH3
-    _placePivotHigh(ph3Bar, color.new(color.red, 10), size.small)
+    _placePivotHigh(ph3Bar, color.new(color.red, 10), size.normal)
 if newPL3
-    _placePivotLow(pl3Bar, color.new(color.green, 10), size.small)
+    _placePivotLow(pl3Bar, color.new(color.green, 10), size.normal)
 
 // ── Pattern labels ───────────────────────────────────────────────────
 // Pattern text with background fill so it renders in front of candles.
