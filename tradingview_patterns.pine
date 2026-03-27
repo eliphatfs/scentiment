@@ -1,0 +1,811 @@
+// Nison Candlestick Patterns — full pattern suite with multi-scale trend,
+// confirmation flow, strength scoring, and multi-order pivots.
+//
+// Ported from the Python scentiment library.
+// References:
+//   Steve Nison — Japanese Candlestick Charting Techniques
+//   Adam Grimes — The Art and Science of Technical Analysis
+//
+//@version=5
+indicator("Nison Candlestick Patterns", overlay=true,
+     max_labels_count=500, max_lines_count=200)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Display ──────────────────────────────────────────────────────────
+i_showPatterns   = input.bool(true,  "Show Pattern Labels",         group="Display")
+i_showPivots     = input.bool(true,  "Show Pivots",                 group="Display")
+i_showTrendBg    = input.bool(true,  "Show Trend Background",       group="Display")
+i_showTable      = input.bool(true,  "Show Trend Table",            group="Display")
+i_showConf       = input.bool(true,  "Show Confirmation Status",    group="Display")
+
+// ── Pivot orders (left/right bars) ───────────────────────────────────
+i_pv1Left  = input.int(1,  "Pivot Order 1 — Left",  minval=1, group="Pivots")
+i_pv1Right = input.int(1,  "Pivot Order 1 — Right", minval=1, group="Pivots")
+i_pv2Left  = input.int(3,  "Pivot Order 2 — Left",  minval=1, group="Pivots")
+i_pv2Right = input.int(3,  "Pivot Order 2 — Right", minval=1, group="Pivots")
+i_pv3Left  = input.int(5,  "Pivot Order 3 — Left",  minval=1, group="Pivots")
+i_pv3Right = input.int(5,  "Pivot Order 3 — Right", minval=1, group="Pivots")
+
+// ── Shape thresholds ─────────────────────────────────────────────────
+i_dojiThr        = input.float(0.1,   "Doji Threshold",             step=0.01,   group="Shape")
+i_shadowMult     = input.float(2.0,   "Shadow Multiplier (hammer/star)", step=0.1, group="Shape")
+i_upperShadRatio = input.float(0.1,   "Max Minor Shadow Ratio",     step=0.01,   group="Shape")
+i_penetration    = input.float(0.5,   "Penetration (dark cloud/piercing/star)", step=0.05, group="Shape")
+i_smallBody      = input.float(0.3,   "Small Body Ratio",           step=0.05,   group="Shape")
+i_longBody       = input.float(0.6,   "Long Body Ratio",            step=0.05,   group="Shape")
+i_beltShadow     = input.float(0.05,  "Belt Hold Shadow Ratio",     step=0.01,   group="Shape")
+i_crowsShadow    = input.float(0.1,   "3 Black Crows Shadow Ratio", step=0.01,   group="Shape")
+i_graveLower     = input.float(0.05,  "Gravestone Lower Shadow Ratio", step=0.01, group="Shape")
+i_graveUpper     = input.float(0.5,   "Gravestone Upper Shadow Ratio", step=0.05, group="Shape")
+i_llDojiShadow   = input.float(0.3,   "Long-legged Doji Shadow Ratio", step=0.05, group="Shape")
+i_rikCenter      = input.float(0.25,  "Rickshaw Man Center Tolerance",  step=0.05, group="Shape")
+
+// ── Price matching ───────────────────────────────────────────────────
+i_matchTol       = input.float(0.001, "Match Tolerance (tweezers/cntratk/sep)", step=0.0001, group="Matching")
+i_mtRiverTol     = input.float(0.003, "Three Mountains/Rivers Tolerance",       step=0.001,  group="Matching")
+i_mtRiverLB      = input.int(30,      "Three Mountains/Rivers Lookback",                     group="Matching")
+
+// ── Trend ────────────────────────────────────────────────────────────
+i_trendLB        = input.int(5,  "Regression Lookback",    minval=2,  group="Trend")
+i_bodyRunMin     = input.int(2,  "Body Run Min Bars",      minval=2,  group="Trend")
+i_multiBarWin    = input.int(10, "Multi-bar Pattern Window", minval=3, group="Trend")
+
+// ── Scoring ──────────────────────────────────────────────────────────
+i_volWindow      = input.int(20, "Volume Avg Window",   minval=2,  group="Scoring")
+i_trendScoreLB   = input.int(10, "Trend Score Lookback", minval=2, group="Scoring")
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+bodySize(i)    => math.abs(close[i] - open[i])
+bodyTop(i)     => math.max(close[i], open[i])
+bodyBot(i)     => math.min(close[i], open[i])
+upperShad(i)   => high[i] - bodyTop(i)
+lowerShad(i)   => bodyBot(i) - low[i]
+candleRange(i) => high[i] - low[i]
+isBullish(i)   => close[i] > open[i]
+isBearish(i)   => close[i] < open[i]
+
+isDoji(i) =>
+    rng = candleRange(i)
+    rng > 0 ? bodySize(i) <= i_dojiThr * rng : true
+
+bodyRatio(i) =>
+    rng = candleRange(i)
+    rng > 0 ? bodySize(i) / rng : 0.0
+
+isLongBody(i)  => bodyRatio(i) >= i_longBody
+isSmallBody(i) => bodyRatio(i) <= i_smallBody
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REGRESSION SLOPE
+// ═══════════════════════════════════════════════════════════════════════════
+
+regSlope(src, length) =>
+    if bar_index < length - 1
+        0.0
+    else
+        xMean = (length - 1) / 2.0
+        xVar  = length * (length * length - 1) / 12.0
+        sumY  = 0.0
+        sumXY = 0.0
+        for k = 0 to length - 1
+            y = src[length - 1 - k]
+            sumY  += y
+            sumXY += k * y
+        (sumXY - xMean * sumY) / xVar
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PIVOTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+ph1 = ta.pivothigh(high, i_pv1Left, i_pv1Right)
+pl1 = ta.pivotlow (low,  i_pv1Left, i_pv1Right)
+ph2 = ta.pivothigh(high, i_pv2Left, i_pv2Right)
+pl2 = ta.pivotlow (low,  i_pv2Left, i_pv2Right)
+ph3 = ta.pivothigh(high, i_pv3Left, i_pv3Right)
+pl3 = ta.pivotlow (low,  i_pv3Left, i_pv3Right)
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TREND DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Body-run micro-trend (Nison) ─────────────────────────────────────
+var int bodyRunCount = 0
+var int bodyRunDir   = 0   // +1 bullish, -1 bearish
+
+curDir = isBullish(0) ? 1 : isBearish(0) ? -1 : 0
+if curDir == bodyRunDir and curDir != 0
+    bodyRunCount += 1
+else
+    bodyRunCount := curDir != 0 ? 1 : 0
+    bodyRunDir   := curDir
+
+microTrend = bodyRunCount >= i_bodyRunMin ? (bodyRunDir == 1 ? 1 : -1) : 0
+
+// ── Regression slope short-trend ─────────────────────────────────────
+slope     = regSlope(close, i_trendLB)
+shortTrend = slope > 0 ? 1 : slope < 0 ? -1 : 0
+
+// ── Pivot-based trend (order 1 = medium, order 2 = long) ────────────
+// Track last two pivot highs/lows for HH+HL / LH+LL detection.
+
+var float lastPH1  = na
+var float prevPH1  = na
+var float lastPL1  = na
+var float prevPL1  = na
+
+if not na(ph1)
+    prevPH1 := lastPH1
+    lastPH1 := ph1
+if not na(pl1)
+    prevPL1 := lastPL1
+    lastPL1 := pl1
+
+mediumUp   = not na(prevPH1) and not na(prevPL1) and lastPH1 > prevPH1 and lastPL1 > prevPL1
+mediumDown = not na(prevPH1) and not na(prevPL1) and lastPH1 < prevPH1 and lastPL1 < prevPL1
+mediumTrend = mediumUp ? 1 : mediumDown ? -1 : 0
+
+var float lastPH2  = na
+var float prevPH2  = na
+var float lastPL2  = na
+var float prevPL2  = na
+
+if not na(ph2)
+    prevPH2 := lastPH2
+    lastPH2 := ph2
+if not na(pl2)
+    prevPL2 := lastPL2
+    lastPL2 := pl2
+
+longUp   = not na(prevPH2) and not na(prevPL2) and lastPH2 > prevPH2 and lastPL2 > prevPL2
+longDown = not na(prevPH2) and not na(prevPL2) and lastPH2 < prevPH2 and lastPL2 < prevPL2
+longTrend = longUp ? 1 : longDown ? -1 : 0
+
+// ── Effective trend (cascade: pivot → regression → body-run) ────────
+effectiveTrend = mediumTrend != 0 ? mediumTrend : shortTrend != 0 ? shortTrend : microTrend
+
+isUp(barsBack)   => effectiveTrend[barsBack] ==  1
+isDown(barsBack) => effectiveTrend[barsBack] == -1
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PATTERN DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Each pattern sets a bullish and/or bearish boolean.
+// Trend context uses effectiveTrend shifted to the first bar of the pattern.
+
+// ── Hammer (ch. 4) ───────────────────────────────────────────────────
+hammerShape = candleRange(0) > 0
+     and lowerShad(0) >= i_shadowMult * bodySize(0)
+     and upperShad(0) <= i_upperShadRatio * candleRange(0)
+     and bodySize(0) > 0
+
+pHammer = hammerShape and isDown(1)
+
+// ── Hanging Man (ch. 4) ──────────────────────────────────────────────
+pHangingMan = hammerShape and isUp(1)
+
+// ── Engulfing (ch. 5) ────────────────────────────────────────────────
+pEngulfBull = isBearish(1) and isBullish(0)
+     and bodyBot(0) < bodyBot(1) and bodyTop(0) > bodyTop(1)
+     and isDown(2)
+pEngulfBear = isBullish(1) and isBearish(0)
+     and bodyBot(0) < bodyBot(1) and bodyTop(0) > bodyTop(1)
+     and isUp(2)
+
+// ── Dark Cloud Cover (ch. 5) ─────────────────────────────────────────
+pDarkCloud = isBullish(1) and isBearish(0) and isLongBody(1)
+     and open[0] > high[1]
+     and close[0] < bodyBot(1) + (1 - i_penetration) * bodySize(1)
+     and close[0] > bodyBot(1)
+     and isUp(2)
+
+// ── Piercing Pattern (ch. 5) ────────────────────────────────────────
+pPiercing = isBearish(1) and isBullish(0) and isLongBody(1)
+     and open[0] < low[1]
+     and close[0] > bodyBot(1) + i_penetration * bodySize(1)
+     and close[0] < bodyTop(1)
+     and isDown(2)
+
+// ── Inverted Hammer (ch. 6) ─────────────────────────────────────────
+invertedShape = candleRange(0) > 0
+     and upperShad(0) >= i_shadowMult * bodySize(0)
+     and lowerShad(0) <= i_upperShadRatio * candleRange(0)
+     and bodySize(0) > 0
+
+pInvHammer = invertedShape and isDown(1)
+
+// ── Shooting Star (ch. 6) ───────────────────────────────────────────
+pShootingStar = invertedShape and isUp(1)
+
+// ── Morning Star (ch. 9) ────────────────────────────────────────────
+pMorningStar = isDown(3) and isLongBody(2) and isBearish(2)
+     and isSmallBody(1)
+     and bodyTop(1) < bodyBot(2)  // gap down
+     and isLongBody(0) and isBullish(0)
+     and close[0] > bodyBot(2) + i_penetration * bodySize(2)
+
+// ── Evening Star (ch. 9) ────────────────────────────────────────────
+pEveningStar = isUp(3) and isLongBody(2) and isBullish(2)
+     and isSmallBody(1)
+     and bodyBot(1) > bodyTop(2)  // gap up
+     and isLongBody(0) and isBearish(0)
+     and close[0] < bodyTop(2) - i_penetration * bodySize(2)
+
+// ── Morning Doji Star (ch. 9) ───────────────────────────────────────
+pMorningDojiStar = isDown(3) and isLongBody(2) and isBearish(2)
+     and isDoji(1)
+     and bodyTop(1) < bodyBot(2)
+     and isLongBody(0) and isBullish(0)
+     and close[0] > bodyBot(2) + i_penetration * bodySize(2)
+
+// ── Evening Doji Star (ch. 9) ───────────────────────────────────────
+pEveningDojiStar = isUp(3) and isLongBody(2) and isBullish(2)
+     and isDoji(1)
+     and bodyBot(1) > bodyTop(2)
+     and isLongBody(0) and isBearish(0)
+     and close[0] < bodyTop(2) - i_penetration * bodySize(2)
+
+// ── Doji at Top (ch. 7–8) ───────────────────────────────────────────
+pDojiTop = isDoji(0) and isUp(1)
+
+// ── Doji at Bottom (ch. 7–8) ────────────────────────────────────────
+pDojiBot = isDoji(0) and isDown(1)
+
+// ── Long-legged Doji (ch. 7–8) ──────────────────────────────────────
+pLongLegDoji = isDoji(0) and candleRange(0) > 0
+     and upperShad(0) >= i_llDojiShadow * candleRange(0)
+     and lowerShad(0) >= i_llDojiShadow * candleRange(0)
+
+pLongLegBull = pLongLegDoji and isDown(1)
+pLongLegBear = pLongLegDoji and isUp(1)
+
+// ── Rickshaw Man (ch. 7–8) ──────────────────────────────────────────
+pRickshaw = pLongLegDoji and candleRange(0) > 0
+midBody  = (bodyTop(0) + bodyBot(0)) / 2
+midRange = (high[0] + low[0]) / 2
+pRickshawMan = pRickshaw
+     and math.abs(midBody - midRange) <= i_rikCenter * candleRange(0)
+
+pRickBull = pRickshawMan and isDown(1)
+pRickBear = pRickshawMan and isUp(1)
+
+// ── Gravestone Doji (ch. 7–8) ───────────────────────────────────────
+pGravestone = isDoji(0) and candleRange(0) > 0
+     and lowerShad(0) <= i_graveLower * candleRange(0)
+     and upperShad(0) >= i_graveUpper * candleRange(0)
+     and isUp(1)
+
+// ── Tri-star (ch. 7–8) ──────────────────────────────────────────────
+pTriStarBear = isDoji(2) and isDoji(1) and isDoji(0) and isUp(3)
+     and bodyTop(1) > bodyTop(2) and bodyTop(1) > bodyTop(0)
+pTriStarBull = isDoji(2) and isDoji(1) and isDoji(0) and isDown(3)
+     and bodyBot(1) < bodyBot(2) and bodyBot(1) < bodyBot(0)
+
+// ── Harami (ch. 10) ─────────────────────────────────────────────────
+pHaramiBull = isBearish(1) and isLongBody(1) and isBullish(0)
+     and bodyTop(0) < bodyTop(1) and bodyBot(0) > bodyBot(1)
+     and isDown(2)
+pHaramiBear = isBullish(1) and isLongBody(1) and isBearish(0)
+     and bodyTop(0) < bodyTop(1) and bodyBot(0) > bodyBot(1)
+     and isUp(2)
+
+// ── Harami Cross (ch. 10) ───────────────────────────────────────────
+pHaramiXBull = isBearish(1) and isLongBody(1) and isDoji(0)
+     and bodyTop(0) < bodyTop(1) and bodyBot(0) > bodyBot(1)
+     and isDown(2)
+pHaramiXBear = isBullish(1) and isLongBody(1) and isDoji(0)
+     and bodyTop(0) < bodyTop(1) and bodyBot(0) > bodyBot(1)
+     and isUp(2)
+
+// ── Tweezers Top (ch. 11) ───────────────────────────────────────────
+pTweezersTop = math.abs(high[0] - high[1]) <= i_matchTol * high[1]
+     and isBullish(1) and isBearish(0)
+     and isUp(2)
+
+// ── Tweezers Bottom (ch. 11) ────────────────────────────────────────
+pTweezersBot = math.abs(low[0] - low[1]) <= i_matchTol * low[1]
+     and isBearish(1) and isBullish(0)
+     and isDown(2)
+
+// ── Belt Hold (ch. 11) ──────────────────────────────────────────────
+pBeltBull = isBullish(0) and isLongBody(0)
+     and lowerShad(0) <= i_beltShadow * candleRange(0)
+     and isDown(1)
+pBeltBear = isBearish(0) and isLongBody(0)
+     and upperShad(0) <= i_beltShadow * candleRange(0)
+     and isUp(1)
+
+// ── Upside Gap Two Crows (ch. 11) ───────────────────────────────────
+pUGTwoCrows = isUp(3) and isBullish(2) and isLongBody(2)
+     and isBearish(1) and open[1] > close[2]   // gap up
+     and isBearish(0)
+     and open[0] > open[1] and close[0] < close[1]
+     and close[0] > close[2]
+
+// ── Three Black Crows (ch. 12) ──────────────────────────────────────
+pThreeBlackCrows = isUp(3)
+     and isBearish(2) and isLongBody(2) and lowerShad(2) <= i_crowsShadow * candleRange(2)
+     and isBearish(1) and isLongBody(1) and lowerShad(1) <= i_crowsShadow * candleRange(1)
+     and isBearish(0) and isLongBody(0) and lowerShad(0) <= i_crowsShadow * candleRange(0)
+     and close[1] < close[2] and close[0] < close[1]
+     and open[1] < open[2] and open[1] > close[2]
+     and open[0] < open[1] and open[0] > close[1]
+
+// ── Three White Soldiers (ch. 14) ───────────────────────────────────
+pThreeWhiteSoldiers = isDown(3)
+     and isBullish(2) and isLongBody(2) and upperShad(2) <= i_crowsShadow * candleRange(2)
+     and isBullish(1) and isLongBody(1) and upperShad(1) <= i_crowsShadow * candleRange(1)
+     and isBullish(0) and isLongBody(0) and upperShad(0) <= i_crowsShadow * candleRange(0)
+     and close[1] > close[2] and close[0] > close[1]
+     and open[1] > open[2] and open[1] < close[2]
+     and open[0] > open[1] and open[0] < close[1]
+
+// ── Counterattack Lines (ch. 12) ────────────────────────────────────
+pCounterBull = isBearish(1) and isLongBody(1)
+     and isBullish(0) and isLongBody(0)
+     and math.abs(close[0] - close[1]) <= i_matchTol * close[1]
+     and isDown(2)
+pCounterBear = isBullish(1) and isLongBody(1)
+     and isBearish(0) and isLongBody(0)
+     and math.abs(close[0] - close[1]) <= i_matchTol * close[1]
+     and isUp(2)
+
+// ── Separating Lines (ch. 14) ───────────────────────────────────────
+pSepBull = isBearish(1)
+     and isBullish(0) and isLongBody(0)
+     and math.abs(open[0] - open[1]) <= i_matchTol * open[1]
+     and isUp(2)
+pSepBear = isBullish(1)
+     and isBearish(0) and isLongBody(0)
+     and math.abs(open[0] - open[1]) <= i_matchTol * open[1]
+     and isDown(2)
+
+// ── Window Up / Down (ch. 13) ───────────────────────────────────────
+pWindowUp   = low[0] > high[1] and isUp(2)
+pWindowDown = high[0] < low[1] and isDown(2)
+
+// ── Rising Three Methods (ch. 14) ───────────────────────────────────
+pRising3 = isBullish(4) and isLongBody(4)
+     and isSmallBody(3) and isSmallBody(2) and isSmallBody(1)
+     and isBullish(0) and isLongBody(0)
+     and close[0] > close[4]
+     and low[3] > low[4] and low[2] > low[4] and low[1] > low[4]
+     and high[3] < high[4] and high[2] < high[4] and high[1] < high[4]
+
+// ── Falling Three Methods (ch. 14) ──────────────────────────────────
+pFalling3 = isBearish(4) and isLongBody(4)
+     and isSmallBody(3) and isSmallBody(2) and isSmallBody(1)
+     and isBearish(0) and isLongBody(0)
+     and close[0] < close[4]
+     and high[3] < high[4] and high[2] < high[4] and high[1] < high[4]
+     and low[3] > low[4] and low[2] > low[4] and low[1] > low[4]
+
+// ── Three Mountains (ch. 12) ────────────────────────────────────────
+// Simplified: three pivot highs within lookback with similar values
+pThreeMountains = false
+if bar_index > i_mtRiverLB
+    var float[] recentPH = array.new_float(0)
+    array.clear(recentPH)
+    for k = 1 to i_mtRiverLB
+        if not na(ta.pivothigh(high, 2, 2)[k])
+            array.push(recentPH, high[k + 2])
+    if array.size(recentPH) >= 3
+        h1 = array.get(recentPH, 0)
+        h2 = array.get(recentPH, 1)
+        h3 = array.get(recentPH, 2)
+        meanH = (h1 + h2 + h3) / 3
+        if math.max(h1, h2, h3) - math.min(h1, h2, h3) <= i_mtRiverTol * meanH
+            pThreeMountains := isBearish(0) and isUp(1)
+
+// ── Three Rivers (ch. 12) ───────────────────────────────────────────
+pThreeRivers = false
+if bar_index > i_mtRiverLB
+    var float[] recentPL = array.new_float(0)
+    array.clear(recentPL)
+    for k = 1 to i_mtRiverLB
+        if not na(ta.pivotlow(low, 2, 2)[k])
+            array.push(recentPL, low[k + 2])
+    if array.size(recentPL) >= 3
+        l1 = array.get(recentPL, 0)
+        l2 = array.get(recentPL, 1)
+        l3 = array.get(recentPL, 2)
+        meanL = (l1 + l2 + l3) / 3
+        if math.max(l1, l2, l3) - math.min(l1, l2, l3) <= i_mtRiverTol * meanL
+            pThreeRivers := isBullish(0) and isDown(1)
+
+// ── Tower Top (ch. 12) ──────────────────────────────────────────────
+pTowerTop = false
+if bar_index >= i_multiBarWin
+    if isLongBody(i_multiBarWin - 1) and isBullish(i_multiBarWin - 1)
+         and isLongBody(0) and isBearish(0)
+        allSmall = true
+        for k = 1 to i_multiBarWin - 2
+            if not isSmallBody(k)
+                allSmall := false
+        pTowerTop := allSmall
+
+// ── Tower Bottom (ch. 12) ───────────────────────────────────────────
+pTowerBot = false
+if bar_index >= i_multiBarWin
+    if isLongBody(i_multiBarWin - 1) and isBearish(i_multiBarWin - 1)
+         and isLongBody(0) and isBullish(0)
+        allSmall2 = true
+        for k = 1 to i_multiBarWin - 2
+            if not isSmallBody(k)
+                allSmall2 := false
+        pTowerBot := allSmall2
+
+// ── Dumpling Top (ch. 12) ───────────────────────────────────────────
+pDumplingTop = false
+if bar_index >= i_multiBarWin
+    nSmall = 0
+    for k = 1 to i_multiBarWin - 1
+        if isSmallBody(k)
+            nSmall += 1
+    pDumplingTop := nSmall >= (i_multiBarWin - 2)
+         and isBearish(0) and isLongBody(0)
+         and isUp(i_multiBarWin)
+
+// ── Fry Pan Bottom (ch. 12) ─────────────────────────────────────────
+pFryPanBot = false
+if bar_index >= i_multiBarWin
+    nSmall3 = 0
+    for k = 1 to i_multiBarWin - 1
+        if isSmallBody(k)
+            nSmall3 += 1
+    pFryPanBot := nSmall3 >= (i_multiBarWin - 2)
+         and isBullish(0) and isLongBody(0)
+         and isDown(i_multiBarWin)
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONFIRMATION (ch. 4, 6, 7–8)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Hanging man: confirmed when next bar closes below body
+confHangingMan    = pHangingMan[1]    and close[0] < bodyBot(1)
+// Shooting star: confirmed when next bar closes below body
+confShootingStar  = pShootingStar[1]  and close[0] < bodyBot(1)
+// Inverted hammer: confirmed when next bar closes above body
+confInvHammer     = pInvHammer[1]     and close[0] > bodyTop(1)
+// Doji at top: confirmed by bearish candle
+confDojiTop       = pDojiTop[1]       and isBearish(0)
+// Doji at bottom: confirmed by bullish candle
+confDojiBot       = pDojiBot[1]       and isBullish(0)
+// Gravestone: confirmed by bearish candle
+confGravestone    = pGravestone[1]    and isBearish(0)
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCORING
+// ═══════════════════════════════════════════════════════════════════════════
+// Composite: 50% shape + 20% volume + 30% trend strength (0.0–1.0)
+
+// Volume score
+volAvg   = ta.sma(volume, i_volWindow)
+volScore = volAvg > 0 and not na(volume) ? math.min(volume / volAvg, 2.0) / 2.0 : 0.5
+
+// Trend strength score
+trendSlope    = regSlope(close, i_trendScoreLB)
+atrVal        = ta.atr(i_trendScoreLB)
+trendStrScore = atrVal > 0 ? math.min(math.abs(trendSlope) / atrVal, 1.0) : 0.0
+
+// Shape score helpers
+hammerShapeScore() =>
+    bs = bodySize(0)
+    ls = lowerShad(0)
+    ratio = bs > 0 ? ls / bs : 0.0
+    math.min(math.max((ratio - 2.0) / 4.0, 0.0), 1.0)
+
+invertedShapeScore() =>
+    bs = bodySize(0)
+    us = upperShad(0)
+    ratio = bs > 0 ? us / bs : 0.0
+    math.min(math.max((ratio - 2.0) / 4.0, 0.0), 1.0)
+
+engulfShapeScore() =>
+    currBody = bodySize(0)
+    prevBody = bodySize(1)
+    ratio = prevBody > 0 ? currBody / prevBody : 1.0
+    math.min(math.max((ratio - 1.0) / 4.0, 0.0), 1.0)
+
+dojiShapeScore() =>
+    rng = candleRange(0)
+    bs  = bodySize(0)
+    rng > 0 ? math.max(1.0 - bs / (i_dojiThr * rng), 0.0) : 0.5
+
+composite(shape) =>
+    math.min(math.max(0.5 * shape + 0.2 * volScore + 0.3 * trendStrScore, 0.0), 1.0)
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COLLECT SIGNALS INTO PER-BAR LABELS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Build label text for current bar.
+var string bullLabel = ""
+var string bearLabel = ""
+var float  bullScore = 0.0
+var float  bearScore = 0.0
+var int    bullCount = 0
+var int    bearCount = 0
+
+bullLabel := ""
+bearLabel := ""
+bullScore := 0.0
+bearScore := 0.0
+bullCount := 0
+bearCount := 0
+
+addBull(name, score) =>
+    [bullLabel + (bullCount > 0 ? "\n" : "") + name,
+     math.max(bullScore, score), bullCount + 1]
+
+addBear(name, score) =>
+    [bearLabel + (bearCount > 0 ? "\n" : "") + name,
+     math.max(bearScore, score), bearCount + 1]
+
+// ── Bullish patterns ─────────────────────────────────────────────────
+if pHammer
+    [l, s, c] = addBull("hammer", composite(hammerShapeScore()))
+    bullLabel := l, bullScore := s, bullCount := c
+if pEngulfBull
+    [l, s, c] = addBull("engulfing", composite(engulfShapeScore()))
+    bullLabel := l, bullScore := s, bullCount := c
+if pPiercing
+    [l, s, c] = addBull("piercing", composite(0.5))
+    bullLabel := l, bullScore := s, bullCount := c
+if pInvHammer
+    s = composite(invertedShapeScore())
+    conf = i_showConf ? " (pending)" : ""
+    [l, sc, ct] = addBull("inv hammer" + conf, s)
+    bullLabel := l, bullScore := sc, bullCount := ct
+if confInvHammer
+    [l, s, c] = addBull("✓ inv hammer", composite(invertedShapeScore()[1]))
+    bullLabel := l, bullScore := s, bullCount := c
+if pMorningStar
+    [l, s, c] = addBull("morning star", composite(0.6))
+    bullLabel := l, bullScore := s, bullCount := c
+if pMorningDojiStar
+    [l, s, c] = addBull("morning doji star", composite(0.7))
+    bullLabel := l, bullScore := s, bullCount := c
+if pDojiBot
+    s = composite(dojiShapeScore())
+    conf = i_showConf ? " (pending)" : ""
+    [l, sc, ct] = addBull("doji bottom" + conf, s)
+    bullLabel := l, bullScore := sc, bullCount := ct
+if confDojiBot
+    [l, s, c] = addBull("✓ doji bottom", composite(dojiShapeScore()[1]))
+    bullLabel := l, bullScore := s, bullCount := c
+if pLongLegBull
+    [l, s, c] = addBull("long-leg doji", composite(dojiShapeScore()))
+    bullLabel := l, bullScore := s, bullCount := c
+if pRickBull
+    [l, s, c] = addBull("rickshaw man", composite(dojiShapeScore()))
+    bullLabel := l, bullScore := s, bullCount := c
+if pTriStarBull
+    [l, s, c] = addBull("tri-star", composite(0.7))
+    bullLabel := l, bullScore := s, bullCount := c
+if pHaramiBull
+    [l, s, c] = addBull("harami", composite(0.5))
+    bullLabel := l, bullScore := s, bullCount := c
+if pHaramiXBull
+    [l, s, c] = addBull("harami cross", composite(0.6))
+    bullLabel := l, bullScore := s, bullCount := c
+if pTweezersBot
+    [l, s, c] = addBull("tweezers bottom", composite(0.5))
+    bullLabel := l, bullScore := s, bullCount := c
+if pBeltBull
+    [l, s, c] = addBull("belt hold", composite(0.5))
+    bullLabel := l, bullScore := s, bullCount := c
+if pCounterBull
+    [l, s, c] = addBull("counterattack", composite(0.5))
+    bullLabel := l, bullScore := s, bullCount := c
+if pSepBull
+    [l, s, c] = addBull("separating", composite(0.5))
+    bullLabel := l, bullScore := s, bullCount := c
+if pWindowUp
+    [l, s, c] = addBull("window up", composite(0.5))
+    bullLabel := l, bullScore := s, bullCount := c
+if pRising3
+    [l, s, c] = addBull("rising 3 methods", composite(0.6))
+    bullLabel := l, bullScore := s, bullCount := c
+if pThreeWhiteSoldiers
+    [l, s, c] = addBull("3 white soldiers", composite(0.7))
+    bullLabel := l, bullScore := s, bullCount := c
+if pThreeRivers
+    [l, s, c] = addBull("three rivers", composite(0.5))
+    bullLabel := l, bullScore := s, bullCount := c
+if pFryPanBot
+    [l, s, c] = addBull("fry pan bottom", composite(0.5))
+    bullLabel := l, bullScore := s, bullCount := c
+if pTowerBot
+    [l, s, c] = addBull("tower bottom", composite(0.6))
+    bullLabel := l, bullScore := s, bullCount := c
+
+// ── Bearish patterns ─────────────────────────────────────────────────
+if pHangingMan
+    s = composite(hammerShapeScore())
+    conf = i_showConf ? " (pending)" : ""
+    [l, sc, ct] = addBear("hanging man" + conf, s)
+    bearLabel := l, bearScore := sc, bearCount := ct
+if confHangingMan
+    [l, s, c] = addBear("✓ hanging man", composite(hammerShapeScore()[1]))
+    bearLabel := l, bearScore := s, bearCount := c
+if pEngulfBear
+    [l, s, c] = addBear("engulfing", composite(engulfShapeScore()))
+    bearLabel := l, bearScore := s, bearCount := c
+if pDarkCloud
+    [l, s, c] = addBear("dark cloud", composite(0.5))
+    bearLabel := l, bearScore := s, bearCount := c
+if pShootingStar
+    s = composite(invertedShapeScore())
+    conf = i_showConf ? " (pending)" : ""
+    [l, sc, ct] = addBear("shooting star" + conf, s)
+    bearLabel := l, bearScore := sc, bearCount := ct
+if confShootingStar
+    [l, s, c] = addBear("✓ shooting star", composite(invertedShapeScore()[1]))
+    bearLabel := l, bearScore := s, bearCount := c
+if pEveningStar
+    [l, s, c] = addBear("evening star", composite(0.6))
+    bearLabel := l, bearScore := s, bearCount := c
+if pEveningDojiStar
+    [l, s, c] = addBear("evening doji star", composite(0.7))
+    bearLabel := l, bearScore := s, bearCount := c
+if pDojiTop
+    s = composite(dojiShapeScore())
+    conf = i_showConf ? " (pending)" : ""
+    [l, sc, ct] = addBear("doji top" + conf, s)
+    bearLabel := l, bearScore := sc, bearCount := ct
+if confDojiTop
+    [l, s, c] = addBear("✓ doji top", composite(dojiShapeScore()[1]))
+    bearLabel := l, bearScore := s, bearCount := c
+if pGravestone
+    s = composite(dojiShapeScore())
+    conf = i_showConf ? " (pending)" : ""
+    [l, sc, ct] = addBear("gravestone" + conf, s)
+    bearLabel := l, bearScore := sc, bearCount := ct
+if confGravestone
+    [l, s, c] = addBear("✓ gravestone", composite(dojiShapeScore()[1]))
+    bearLabel := l, bearScore := s, bearCount := c
+if pLongLegBear
+    [l, s, c] = addBear("long-leg doji", composite(dojiShapeScore()))
+    bearLabel := l, bearScore := s, bearCount := c
+if pRickBear
+    [l, s, c] = addBear("rickshaw man", composite(dojiShapeScore()))
+    bearLabel := l, bearScore := s, bearCount := c
+if pTriStarBear
+    [l, s, c] = addBear("tri-star", composite(0.7))
+    bearLabel := l, bearScore := s, bearCount := c
+if pHaramiBear
+    [l, s, c] = addBear("harami", composite(0.5))
+    bearLabel := l, bearScore := s, bearCount := c
+if pHaramiXBear
+    [l, s, c] = addBear("harami cross", composite(0.6))
+    bearLabel := l, bearScore := s, bearCount := c
+if pTweezersTop
+    [l, s, c] = addBear("tweezers top", composite(0.5))
+    bearLabel := l, bearScore := s, bearCount := c
+if pBeltBear
+    [l, s, c] = addBear("belt hold", composite(0.5))
+    bearLabel := l, bearScore := s, bearCount := c
+if pUGTwoCrows
+    [l, s, c] = addBear("upside gap 2 crows", composite(0.5))
+    bearLabel := l, bearScore := s, bearCount := c
+if pThreeBlackCrows
+    [l, s, c] = addBear("3 black crows", composite(0.7))
+    bearLabel := l, bearScore := s, bearCount := c
+if pCounterBear
+    [l, s, c] = addBear("counterattack", composite(0.5))
+    bearLabel := l, bearScore := s, bearCount := c
+if pSepBear
+    [l, s, c] = addBear("separating", composite(0.5))
+    bearLabel := l, bearScore := s, bearCount := c
+if pWindowDown
+    [l, s, c] = addBear("window down", composite(0.5))
+    bearLabel := l, bearScore := s, bearCount := c
+if pFalling3
+    [l, s, c] = addBear("falling 3 methods", composite(0.6))
+    bearLabel := l, bearScore := s, bearCount := c
+if pThreeMountains
+    [l, s, c] = addBear("three mountains", composite(0.5))
+    bearLabel := l, bearScore := s, bearCount := c
+if pDumplingTop
+    [l, s, c] = addBear("dumpling top", composite(0.5))
+    bearLabel := l, bearScore := s, bearCount := c
+if pTowerTop
+    [l, s, c] = addBear("tower top", composite(0.6))
+    bearLabel := l, bearScore := s, bearCount := c
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLOTTING
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Trend background ─────────────────────────────────────────────────
+trendBgColor = mediumTrend == 1 ? color.new(color.green, 88)
+     : mediumTrend == -1 ? color.new(color.red, 88) : na
+bgcolor(i_showTrendBg ? trendBgColor : na)
+
+// ── Pivots — empty triangles, 3 sizes ────────────────────────────────
+plotshape(i_showPivots and not na(ph1) ? high[i_pv1Right] : na,
+     title="PH Order 1", style=shape.triangledown,
+     location=location.abovebar, color=color.new(color.red, 30),
+     size=size.tiny, offset=-i_pv1Right)
+plotshape(i_showPivots and not na(pl1) ? low[i_pv1Right] : na,
+     title="PL Order 1", style=shape.triangleup,
+     location=location.belowbar, color=color.new(color.green, 30),
+     size=size.tiny, offset=-i_pv1Right)
+
+plotshape(i_showPivots and not na(ph2) ? high[i_pv2Right] : na,
+     title="PH Order 2", style=shape.triangledown,
+     location=location.abovebar, color=color.new(color.red, 10),
+     size=size.small, offset=-i_pv2Right)
+plotshape(i_showPivots and not na(pl2) ? low[i_pv2Right] : na,
+     title="PL Order 2", style=shape.triangleup,
+     location=location.belowbar, color=color.new(color.green, 10),
+     size=size.small, offset=-i_pv2Right)
+
+plotshape(i_showPivots and not na(ph3) ? high[i_pv3Right] : na,
+     title="PH Order 3", style=shape.triangledown,
+     location=location.abovebar, color=color.new(color.red, 0),
+     size=size.normal, offset=-i_pv3Right)
+plotshape(i_showPivots and not na(pl3) ? low[i_pv3Right] : na,
+     title="PL Order 3", style=shape.triangleup,
+     location=location.belowbar, color=color.new(color.green, 0),
+     size=size.normal, offset=-i_pv3Right)
+
+// ── Pattern labels ───────────────────────────────────────────────────
+if i_showPatterns and bullCount > 0
+    txt = bullLabel + "\n[" + str.tostring(bullScore * 100, "#") + "%]"
+    label.new(bar_index, low, txt,
+         style=label.style_label_up,
+         color=color.new(color.blue, 20),
+         textcolor=color.white, size=size.small)
+
+if i_showPatterns and bearCount > 0
+    txt = bearLabel + "\n[" + str.tostring(bearScore * 100, "#") + "%]"
+    label.new(bar_index, high, txt,
+         style=label.style_label_down,
+         color=color.new(color.orange, 20),
+         textcolor=color.white, size=size.small)
+
+// ── Multi-scale trend table ──────────────────────────────────────────
+if i_showTable
+    var table trendTable = table.new(position.top_right, 2, 4,
+         bgcolor=color.new(color.gray, 85), border_width=1)
+
+    trendColor(val) => val == 1 ? color.green : val == -1 ? color.red : color.gray
+    trendText(val)  => val == 1 ? "UP" : val == -1 ? "DOWN" : "—"
+
+    table.cell(trendTable, 0, 0, "Micro",  text_color=color.white, text_size=size.small)
+    table.cell(trendTable, 1, 0, trendText(microTrend),
+         bgcolor=trendColor(microTrend), text_color=color.white, text_size=size.small)
+    table.cell(trendTable, 0, 1, "Short",  text_color=color.white, text_size=size.small)
+    table.cell(trendTable, 1, 1, trendText(shortTrend),
+         bgcolor=trendColor(shortTrend), text_color=color.white, text_size=size.small)
+    table.cell(trendTable, 0, 2, "Medium", text_color=color.white, text_size=size.small)
+    table.cell(trendTable, 1, 2, trendText(mediumTrend),
+         bgcolor=trendColor(mediumTrend), text_color=color.white, text_size=size.small)
+    table.cell(trendTable, 0, 3, "Long",   text_color=color.white, text_size=size.small)
+    table.cell(trendTable, 1, 3, trendText(longTrend),
+         bgcolor=trendColor(longTrend), text_color=color.white, text_size=size.small)
+
+// ── Alerts ───────────────────────────────────────────────────────────
+alertcondition(bullCount > 0, title="Bullish Pattern", message="Bullish candlestick pattern detected")
+alertcondition(bearCount > 0, title="Bearish Pattern", message="Bearish candlestick pattern detected")
+alertcondition(confHangingMan or confShootingStar or confGravestone,
+     title="Bearish Confirmed", message="Bearish pattern confirmed")
+alertcondition(confInvHammer or confDojiBot,
+     title="Bullish Confirmed", message="Bullish pattern confirmed")

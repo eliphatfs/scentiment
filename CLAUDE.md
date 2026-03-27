@@ -72,6 +72,70 @@ The project is Python-based (`ruff` for linting, `pytest` for testing). Planned 
 | `plot_daily.py` | Daily chart via Twelve Data API, default 6 months. Uses daily default tolerances. Usage: `python plot_daily.py [SYMBOL] [MONTHS]` |
 | `plot_exhibit_9_2.py` | Runs all pattern detections on exhibit 9.2 data (static CSV), overlays multi-scale trend background and trend-termination signals, saves `exhibit_9_2_patterns.png` |
 
+### TradingView Pine Script
+
+| File | Purpose |
+|---|---|
+| `tradingview_patterns.pine` | Pine Script v5 indicator that replicates the full Python pattern suite for live TradingView charts. Includes all 35 candlestick patterns, multi-order pivots (3 sizes of empty triangles), multi-scale trend (table + background shading), confirmation flow ("pending" / "✓ confirmed"), composite strength scoring, and 31 tunable inputs. |
+
+**Python ↔ Pine Script correspondence:**
+
+| Python module | Pine Script section | Key mapping |
+|---|---|---|
+| `patterns/_candle.py` helpers | `HELPERS` section | `body()` → `bodySize(i)`, `body_top()` → `bodyTop(i)`, `is_doji()` → `isDoji(i)`, etc. Pine uses bar-offset `[i]` instead of Series indexing. |
+| `patterns/_candle.py` `_regression_slope` | `REGRESSION SLOPE` section | `regSlope(src, length)` — same OLS formula: `(sumXY - xMean * sumY) / xVar` |
+| `patterns/pivots.py` | `PIVOTS` section | Python uses pivot-among-pivots for higher orders; Pine approximates with `ta.pivothigh/low(high, leftBars, rightBars)` using wider windows (tunable per order). |
+| `patterns/_candle.py` trend + `trend.py` | `TREND DETECTION` section | `effectiveTrend` = cascade: medium (pivot HH+HL) → short (regression slope) → micro (body runs). `isUp(barsBack)` / `isDown(barsBack)` replace `is_uptrend(df).shift(N)`. |
+| `patterns/reversal.py`, `stars.py`, `doji.py`, `more_reversals.py`, `continuation.py` | `PATTERN DETECTION` section | Each pattern is a boolean expression. Trend context uses `isUp(N)` / `isDown(N)` where N = bars before the pattern's first candle. |
+| `patterns/confirmation.py` | `CONFIRMATION` section | Uses `pattern[1]` (previous bar had raw signal) + current bar meets condition. E.g., `confHangingMan = pHangingMan[1] and close < bodyBot(1)`. |
+| `patterns/scoring.py` | `SCORING` section | `composite(shape) = 0.5*shape + 0.2*volScore + 0.3*trendStrScore`. Shape scorers: `hammerShapeScore()`, `invertedShapeScore()`, `engulfShapeScore()`, `dojiShapeScore()`. |
+| `plot_common.py` / `plot_exhibit_9_2.py` | `PLOTTING` section | Labels replace matplotlib annotations. Pivots use `plotshape` (tiny/small/normal). Trend background uses `bgcolor`. Multi-scale trend uses `table`. |
+
+## How to update the Pine Script after Python changes
+
+When pattern logic, thresholds, scoring, or trend detection changes in the Python code, the Pine Script must be updated manually to match. Follow this checklist:
+
+### 1. New pattern added
+
+- **Python**: new function in `patterns/*.py`, added to `plot_common.run_all_patterns()` and `backtest.py` registries.
+- **Pine Script**: add the detection logic as a boolean in the `PATTERN DETECTION` section. Then add the signal collection block (an `if pNewPattern` block under bullish or bearish) in the `COLLECT SIGNALS` section, calling `addBull()` or `addBear()` with a name and `composite(shapeScore)`.
+
+### 2. Pattern removed
+
+- **Pine Script**: delete the boolean expression in `PATTERN DETECTION` and the corresponding `if` block in `COLLECT SIGNALS`.
+
+### 3. Threshold or default changed
+
+- **Python**: e.g., `shadow_multiplier` default changed from 2.0 to 2.5 in `reversal.py`.
+- **Pine Script**: update the matching `input.*` default in the `INPUTS` section. The input variable names follow the convention `i_shadowMult`, `i_dojiThr`, `i_matchTol`, etc. Search for the old default value to find it.
+
+### 4. New confirmation rule added
+
+- **Python**: new entry in `CONFIRMATION_RULES` in `confirmation.py`, new `confirmed_*` wrapper.
+- **Pine Script**: add a `confNewPattern = pNewPattern[1] and <condition>` line in the `CONFIRMATION` section. Add the confirmed signal block (`if confNewPattern`) in `COLLECT SIGNALS` with the "✓ " prefix. Add the raw signal block with `" (pending)"` suffix.
+
+### 5. Scoring formula changed
+
+- **Python**: weights changed in `pattern_strength()` or new shape scorer added in `_SHAPE_SCORERS`.
+- **Pine Script**: update `composite()` weights and/or add a new `*ShapeScore()` function in the `SCORING` section. Update the `composite(...)` call in the pattern's signal collection block.
+
+### 6. Trend detection changed
+
+- **Python**: changes in `trend.py` (`body_run_trend`, `regression_slope_trend`, `pivot_trend`, `multi_scale_trend`, `effective_trend`).
+- **Pine Script**: update the corresponding section in `TREND DETECTION`. The `effectiveTrend` cascade must match `effective_trend()` priority order. If new trend scales are added, update the table in the `PLOTTING` section.
+
+### 7. Pivot detection changed
+
+- **Python**: changes in `pivots.py` (order logic, confirmation delay).
+- **Pine Script**: the Pine version uses `ta.pivothigh/low` with tunable left/right bars as an approximation. If the Python logic diverges significantly from wider-window pivots, consider reimplementing with arrays tracking pivot-among-pivot logic.
+
+### Quick validation
+
+After updating the Pine Script, visually compare signals on the same symbol/timeframe:
+1. Run `python plot_daily.py SYMBOL` to generate the Python chart.
+2. Load the Pine Script on the same symbol in TradingView.
+3. Spot-check that the same patterns fire on the same bars, confirmation status matches, and strength percentages are close (volume data differences between brokers may cause minor scoring variance).
+
 ## Development Commands
 
 ```bash
