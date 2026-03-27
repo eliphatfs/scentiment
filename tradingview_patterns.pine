@@ -878,21 +878,21 @@ _placePivotLow(int pivotBar, color clr, string sz) =>
 
 // Order 1 fires first — may be superseded later by order 2 or 3
 if not na(ph1)
-    _placePivotHigh(ph1Bar, color.new(color.red, 10), size.tiny)
+    _placePivotHigh(ph1Bar, color.new(color.red, 10), size.auto)
 if not na(pl1)
-    _placePivotLow(pl1Bar, color.new(color.green, 10), size.tiny)
+    _placePivotLow(pl1Bar, color.new(color.green, 10), size.auto)
 
 // Order 2 fires when next order-1 confirms — deletes order-1 label at same bar
 if newPH2
-    _placePivotHigh(ph2Bar, color.new(color.red, 10), size.small)
+    _placePivotHigh(ph2Bar, color.new(color.red, 10), size.tiny)
 if newPL2
-    _placePivotLow(pl2Bar, color.new(color.green, 10), size.small)
+    _placePivotLow(pl2Bar, color.new(color.green, 10), size.tiny)
 
 // Order 3 fires when next order-2 confirms — deletes order-2 label at same bar
 if newPH3
-    _placePivotHigh(ph3Bar, color.new(color.red, 10), size.normal)
+    _placePivotHigh(ph3Bar, color.new(color.red, 10), size.small)
 if newPL3
-    _placePivotLow(pl3Bar, color.new(color.green, 10), size.normal)
+    _placePivotLow(pl3Bar, color.new(color.green, 10), size.small)
 
 // ── Pattern labels ───────────────────────────────────────────────────
 // Pattern text with background fill so it renders in front of candles.
