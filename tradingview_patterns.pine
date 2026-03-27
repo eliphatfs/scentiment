@@ -839,6 +839,10 @@ var label[] pvhLabels = array.new_label(0)
 var int[]   pvlBars   = array.new_int(0)
 var label[] pvlLabels = array.new_label(0)
 
+// ATR-based offset for precise pivot/label positioning
+float _pvOff = nz(atrVal) * 0.3   // pivot markers: close to wick tip
+float _txtOff = nz(atrVal) * 1.2  // pattern text: below/above pivot zone
+
 _placePivotHigh(int pivotBar, string sym, color clr, string sz) =>
     if i_showPivots
         // Delete any existing label at the same bar (lower-order superseded)
@@ -848,9 +852,10 @@ _placePivotHigh(int pivotBar, string sym, color clr, string sz) =>
                     label.delete(array.get(pvhLabels, idx))
                     array.remove(pvhBars, idx)
                     array.remove(pvhLabels, idx)
-        lbl = label.new(pivotBar, high[bar_index - pivotBar], sym,
+        int offset = bar_index - pivotBar
+        lbl = label.new(pivotBar, high[offset] + _pvOff, sym,
              style=label.style_none,
-             textcolor=clr, size=sz, yloc=yloc.abovebar)
+             textcolor=clr, size=sz, yloc=yloc.price)
         array.push(pvhBars, pivotBar)
         array.push(pvhLabels, lbl)
         if array.size(pvhBars) > 200
@@ -865,9 +870,10 @@ _placePivotLow(int pivotBar, string sym, color clr, string sz) =>
                     label.delete(array.get(pvlLabels, idx))
                     array.remove(pvlBars, idx)
                     array.remove(pvlLabels, idx)
-        lbl = label.new(pivotBar, low[bar_index - pivotBar], sym,
+        int offset = bar_index - pivotBar
+        lbl = label.new(pivotBar, low[offset] - _pvOff, sym,
              style=label.style_none,
-             textcolor=clr, size=sz, yloc=yloc.belowbar)
+             textcolor=clr, size=sz, yloc=yloc.price)
         array.push(pvlBars, pivotBar)
         array.push(pvlLabels, lbl)
         if array.size(pvlBars) > 200
@@ -876,15 +882,15 @@ _placePivotLow(int pivotBar, string sym, color clr, string sz) =>
 
 // Order 1 fires first — may be superseded later by order 2 or 3
 if not na(ph1)
-    _placePivotHigh(ph1Bar, "▿", color.new(color.red, 40), size.small)
+    _placePivotHigh(ph1Bar, "▿", color.new(color.red, 40), size.normal)
 if not na(pl1)
-    _placePivotLow(pl1Bar, "▵", color.new(color.green, 40), size.small)
+    _placePivotLow(pl1Bar, "▵", color.new(color.green, 40), size.normal)
 
 // Order 2 fires when next order-1 confirms — deletes order-1 label at same bar
 if newPH2
-    _placePivotHigh(ph2Bar, "▽", color.new(color.red, 10), size.large)
+    _placePivotHigh(ph2Bar, "▽", color.new(color.red, 10), size.huge)
 if newPL2
-    _placePivotLow(pl2Bar, "△", color.new(color.green, 10), size.large)
+    _placePivotLow(pl2Bar, "△", color.new(color.green, 10), size.huge)
 
 // Order 3 fires when next order-2 confirms — deletes order-2 label at same bar
 if newPH3
@@ -896,16 +902,16 @@ if newPL3
 if i_showPatterns and bullCount > 0
     txt = bullLabel + "\n[" + str.tostring(bullScore * 100, "#") + "%]"
     clr = bullAllPending ? color.gray : color.blue
-    label.new(bar_index, low, txt,
+    label.new(bar_index, low - _txtOff, txt,
          style=label.style_none,
-         textcolor=clr, size=size.small, yloc=yloc.belowbar)
+         textcolor=clr, size=size.small, yloc=yloc.price)
 
 if i_showPatterns and bearCount > 0
     txt = bearLabel + "\n[" + str.tostring(bearScore * 100, "#") + "%]"
     clr = bearAllPending ? color.gray : color.orange
-    label.new(bar_index, high, txt,
+    label.new(bar_index, high + _txtOff, txt,
          style=label.style_none,
-         textcolor=clr, size=size.small, yloc=yloc.abovebar)
+         textcolor=clr, size=size.small, yloc=yloc.price)
 
 // ── Multi-scale trend table ──────────────────────────────────────────
 trendColor(val) => val == 1 ? color.green : val == -1 ? color.red : color.gray
