@@ -878,9 +878,9 @@ _placePivotLow(int pivotBar, color clr, string sz) =>
 
 // Order 1 fires first — may be superseded later by order 2 or 3
 if not na(ph1)
-    _placePivotHigh(ph1Bar, color.new(color.red, 10), size.auto)
+    _placePivotHigh(ph1Bar, color.new(color.red, 50), size.auto)
 if not na(pl1)
-    _placePivotLow(pl1Bar, color.new(color.green, 10), size.auto)
+    _placePivotLow(pl1Bar, color.new(color.green, 50), size.auto)
 
 // Order 2 fires when next order-1 confirms — deletes order-1 label at same bar
 if newPH2
@@ -897,18 +897,16 @@ if newPL3
 // ── Pattern labels ───────────────────────────────────────────────────
 // Pattern text with background fill so it renders in front of candles.
 if i_showPatterns and bullCount > 0
-    txt = bullLabel + "\n[" + str.tostring(bullScore * 100, "#") + "%]"
     clr = bullAllPending ? color.gray : color.blue
-    label.new(bar_index, na, txt,
+    label.new(bar_index, na, bullLabel,
          style=label.style_label_up, color=color.new(clr, 85),
-         textcolor=clr, size=size.small, yloc=yloc.belowbar)
+         textcolor=clr, size=size.tiny, yloc=yloc.belowbar)
 
 if i_showPatterns and bearCount > 0
-    txt = bearLabel + "\n[" + str.tostring(bearScore * 100, "#") + "%]"
     clr = bearAllPending ? color.gray : color.orange
-    label.new(bar_index, na, txt,
+    label.new(bar_index, na, bearLabel,
          style=label.style_label_down, color=color.new(clr, 85),
-         textcolor=clr, size=size.small, yloc=yloc.abovebar)
+         textcolor=clr, size=size.tiny, yloc=yloc.abovebar)
 
 // ── Multi-scale trend table ──────────────────────────────────────────
 trendColor(val) => val == 1 ? color.green : val == -1 ? color.red : color.gray
