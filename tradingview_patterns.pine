@@ -845,7 +845,7 @@ _placePivotHigh(int pivotBar, string sym, color clr, string sz) =>
                     array.remove(pvhBars, idx)
                     array.remove(pvhLabels, idx)
         lbl = label.new(pivotBar, high[bar_index - pivotBar], sym,
-             style=label.style_text_outline,
+             style=label.style_none,
              textcolor=clr, size=sz, yloc=yloc.abovebar)
         array.push(pvhBars, pivotBar)
         array.push(pvhLabels, lbl)
@@ -862,7 +862,7 @@ _placePivotLow(int pivotBar, string sym, color clr, string sz) =>
                     array.remove(pvlBars, idx)
                     array.remove(pvlLabels, idx)
         lbl = label.new(pivotBar, low[bar_index - pivotBar], sym,
-             style=label.style_text_outline,
+             style=label.style_none,
              textcolor=clr, size=sz, yloc=yloc.belowbar)
         array.push(pvlBars, pivotBar)
         array.push(pvlLabels, lbl)
@@ -872,34 +872,34 @@ _placePivotLow(int pivotBar, string sym, color clr, string sz) =>
 
 // Order 1 fires first — may be superseded later by order 2 or 3
 if not na(ph1)
-    _placePivotHigh(ph1Bar, "▽", color.new(color.red, 30), size.tiny)
+    _placePivotHigh(ph1Bar, "▿", color.new(color.red, 40), size.tiny)
 if not na(pl1)
-    _placePivotLow(pl1Bar, "△", color.new(color.green, 30), size.tiny)
+    _placePivotLow(pl1Bar, "▵", color.new(color.green, 40), size.tiny)
 
 // Order 2 fires when next order-1 confirms — deletes order-1 label at same bar
 if newPH2
-    _placePivotHigh(ph2Bar, "▽", color.new(color.red, 10), size.small)
+    _placePivotHigh(ph2Bar, "▽", color.new(color.red, 10), size.normal)
 if newPL2
-    _placePivotLow(pl2Bar, "△", color.new(color.green, 10), size.small)
+    _placePivotLow(pl2Bar, "△", color.new(color.green, 10), size.normal)
 
 // Order 3 fires when next order-2 confirms — deletes order-2 label at same bar
 if newPH3
-    _placePivotHigh(ph3Bar, "▽", color.new(color.red, 0), size.normal)
+    _placePivotHigh(ph3Bar, "▼", color.red, size.large)
 if newPL3
-    _placePivotLow(pl3Bar, "△", color.new(color.green, 0), size.normal)
+    _placePivotLow(pl3Bar, "▲", color.green, size.large)
 
 // ── Pattern labels ───────────────────────────────────────────────────
 if i_showPatterns and bullCount > 0
     txt = bullLabel + "\n[" + str.tostring(bullScore * 100, "#") + "%]"
     label.new(bar_index, low, txt,
-         style=label.style_text_outline,
-         textcolor=color.blue, size=size.small)
+         style=label.style_none,
+         textcolor=color.blue, size=size.small, yloc=yloc.belowbar)
 
 if i_showPatterns and bearCount > 0
     txt = bearLabel + "\n[" + str.tostring(bearScore * 100, "#") + "%]"
     label.new(bar_index, high, txt,
-         style=label.style_text_outline,
-         textcolor=color.orange, size=size.small)
+         style=label.style_none,
+         textcolor=color.orange, size=size.small, yloc=yloc.abovebar)
 
 // ── Multi-scale trend table ──────────────────────────────────────────
 trendColor(val) => val == 1 ? color.green : val == -1 ? color.red : color.gray
