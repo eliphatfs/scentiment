@@ -743,20 +743,63 @@ trendBgColor = mediumTrend == 1 ? color.new(color.green, 88)
 bgcolor(i_showTrendBg ? trendBgColor : na)
 
 // ── Pivots — empty triangles, 3 sizes ────────────────────────────────
-plotshape(i_showPivots and not na(ph1) ? high[i_pv1Right] : na,
+// A higher-order pivot subsumes lower orders: only show the highest
+// order detected at each bar.  We track which bars have been claimed
+// by order 3/2 and suppress order 1/2 accordingly.
+//
+// Since plotshape offsets differ per order, we use arrays to record
+// which bar_index values already have a higher-order marker, then
+// gate lower-order plotshape via a boolean that checks the arrays.
+
+// Track bars claimed by higher-order pivots (sliding window)
+var int[] claimedPH = array.new_int(0)
+var int[] claimedPL = array.new_int(0)
+
+// Order 3 — always shown; claim the bar
+int ph3Bar = not na(ph3) ? bar_index - i_pv3Right : -1
+int pl3Bar = not na(pl3) ? bar_index - i_pv3Right : -1
+if ph3Bar >= 0
+    array.push(claimedPH, ph3Bar)
+if pl3Bar >= 0
+    array.push(claimedPL, pl3Bar)
+
+// Order 2 — shown only if bar not claimed by order 3
+int ph2Bar = not na(ph2) ? bar_index - i_pv2Right : -1
+int pl2Bar = not na(pl2) ? bar_index - i_pv2Right : -1
+bool ph2Claimed = ph2Bar >= 0 and array.includes(claimedPH, ph2Bar)
+bool pl2Claimed = pl2Bar >= 0 and array.includes(claimedPL, pl2Bar)
+// Claim bar for order 2 (so order 1 is suppressed)
+if ph2Bar >= 0 and not ph2Claimed
+    array.push(claimedPH, ph2Bar)
+if pl2Bar >= 0 and not pl2Claimed
+    array.push(claimedPL, pl2Bar)
+
+// Order 1 — shown only if bar not claimed by order 2 or 3
+int ph1Bar = not na(ph1) ? bar_index - i_pv1Right : -1
+int pl1Bar = not na(pl1) ? bar_index - i_pv1Right : -1
+bool ph1Claimed = ph1Bar >= 0 and array.includes(claimedPH, ph1Bar)
+bool pl1Claimed = pl1Bar >= 0 and array.includes(claimedPL, pl1Bar)
+
+// Keep arrays bounded
+if array.size(claimedPH) > 200
+    array.shift(claimedPH)
+if array.size(claimedPL) > 200
+    array.shift(claimedPL)
+
+plotshape(i_showPivots and not na(ph1) and not ph1Claimed ? high[i_pv1Right] : na,
      title="PH Order 1", style=shape.triangledown,
      location=location.abovebar, color=color.new(color.red, 30),
      size=size.tiny, offset=-i_pv1Right)
-plotshape(i_showPivots and not na(pl1) ? low[i_pv1Right] : na,
+plotshape(i_showPivots and not na(pl1) and not pl1Claimed ? low[i_pv1Right] : na,
      title="PL Order 1", style=shape.triangleup,
      location=location.belowbar, color=color.new(color.green, 30),
      size=size.tiny, offset=-i_pv1Right)
 
-plotshape(i_showPivots and not na(ph2) ? high[i_pv2Right] : na,
+plotshape(i_showPivots and not na(ph2) and not ph2Claimed ? high[i_pv2Right] : na,
      title="PH Order 2", style=shape.triangledown,
      location=location.abovebar, color=color.new(color.red, 10),
      size=size.small, offset=-i_pv2Right)
-plotshape(i_showPivots and not na(pl2) ? low[i_pv2Right] : na,
+plotshape(i_showPivots and not na(pl2) and not pl2Claimed ? low[i_pv2Right] : na,
      title="PL Order 2", style=shape.triangleup,
      location=location.belowbar, color=color.new(color.green, 10),
      size=size.small, offset=-i_pv2Right)
@@ -775,14 +818,14 @@ if i_showPatterns and bullCount > 0
     txt = bullLabel + "\n[" + str.tostring(bullScore * 100, "#") + "%]"
     label.new(bar_index, low, txt,
          style=label.style_label_up,
-         color=color.new(color.blue, 20),
+         color=color.new(color.blue, 70),
          textcolor=color.white, size=size.small)
 
 if i_showPatterns and bearCount > 0
     txt = bearLabel + "\n[" + str.tostring(bearScore * 100, "#") + "%]"
     label.new(bar_index, high, txt,
          style=label.style_label_down,
-         color=color.new(color.orange, 20),
+         color=color.new(color.orange, 70),
          textcolor=color.white, size=size.small)
 
 // ── Multi-scale trend table ──────────────────────────────────────────
