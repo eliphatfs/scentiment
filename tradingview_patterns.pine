@@ -6,7 +6,7 @@
 //   Steve Nison — Japanese Candlestick Charting Techniques
 //   Adam Grimes — The Art and Science of Technical Analysis
 //
-//@version=5
+//@version=6
 indicator("Nison Candlestick Patterns", overlay=true,
      max_labels_count=500, max_lines_count=200)
 
@@ -392,13 +392,17 @@ pFalling3 = isBearish(4) and isLongBody(4)
      and low[3] > low[4] and low[2] > low[4] and low[1] > low[4]
 
 // ── Three Mountains (ch. 12) ────────────────────────────────────────
+// Precompute pivot series at global scope (Pine requires ta.* at top level)
+_phForMt = ta.pivothigh(high, 2, 2)
+_plForMt = ta.pivotlow (low,  2, 2)
+
 // Simplified: three pivot highs within lookback with similar values
 pThreeMountains = false
 if bar_index > i_mtRiverLB
     var float[] recentPH = array.new_float(0)
     array.clear(recentPH)
     for k = 1 to i_mtRiverLB
-        if not na(ta.pivothigh(high, 2, 2)[k])
+        if not na(_phForMt[k])
             array.push(recentPH, high[k + 2])
     if array.size(recentPH) >= 3
         h1 = array.get(recentPH, 0)
@@ -414,7 +418,7 @@ if bar_index > i_mtRiverLB
     var float[] recentPL = array.new_float(0)
     array.clear(recentPL)
     for k = 1 to i_mtRiverLB
-        if not na(ta.pivotlow(low, 2, 2)[k])
+        if not na(_plForMt[k])
             array.push(recentPL, low[k + 2])
     if array.size(recentPL) >= 3
         l1 = array.get(recentPL, 0)
@@ -782,13 +786,13 @@ if i_showPatterns and bearCount > 0
          textcolor=color.white, size=size.small)
 
 // ── Multi-scale trend table ──────────────────────────────────────────
+trendColor(val) => val == 1 ? color.green : val == -1 ? color.red : color.gray
+trendText(val)  => val == 1 ? "UP" : val == -1 ? "DOWN" : "—"
+
+var table trendTable = table.new(position.top_right, 2, 4,
+     bgcolor=color.new(color.gray, 85), border_width=1)
+
 if i_showTable
-    var table trendTable = table.new(position.top_right, 2, 4,
-         bgcolor=color.new(color.gray, 85), border_width=1)
-
-    trendColor(val) => val == 1 ? color.green : val == -1 ? color.red : color.gray
-    trendText(val)  => val == 1 ? "UP" : val == -1 ? "DOWN" : "—"
-
     table.cell(trendTable, 0, 0, "Micro",  text_color=color.white, text_size=size.small)
     table.cell(trendTable, 1, 0, trendText(microTrend),
          bgcolor=trendColor(microTrend), text_color=color.white, text_size=size.small)
