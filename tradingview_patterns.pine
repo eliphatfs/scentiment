@@ -172,8 +172,15 @@ longTrend = longUp ? 1 : longDown ? -1 : 0
 // ── Effective trend (cascade: pivot → regression → body-run) ────────
 effectiveTrend = mediumTrend != 0 ? mediumTrend : shortTrend != 0 ? shortTrend : microTrend
 
-isUp(barsBack)   => effectiveTrend[barsBack] ==  1
-isDown(barsBack) => effectiveTrend[barsBack] == -1
+// Pre-compute trend lookbacks at global scope (Pine v6 requires consistent execution)
+bool trendUp1  = effectiveTrend[1] ==  1
+bool trendDn1  = effectiveTrend[1] == -1
+bool trendUp2  = effectiveTrend[2] ==  1
+bool trendDn2  = effectiveTrend[2] == -1
+bool trendUp3  = effectiveTrend[3] ==  1
+bool trendDn3  = effectiveTrend[3] == -1
+bool trendUpMB = effectiveTrend[i_multiBarWin] ==  1
+bool trendDnMB = effectiveTrend[i_multiBarWin] == -1
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -189,32 +196,32 @@ hammerShape = candleRange(0) > 0
      and upperShad(0) <= i_upperShadRatio * candleRange(0)
      and bodySize(0) > 0
 
-pHammer = hammerShape and isDown(1)
+pHammer = hammerShape and trendDn1
 
 // ── Hanging Man (ch. 4) ──────────────────────────────────────────────
-pHangingMan = hammerShape and isUp(1)
+pHangingMan = hammerShape and trendUp1
 
 // ── Engulfing (ch. 5) ────────────────────────────────────────────────
 pEngulfBull = isBearish(1) and isBullish(0)
      and bodyBot(0) < bodyBot(1) and bodyTop(0) > bodyTop(1)
-     and isDown(2)
+     and trendDn2
 pEngulfBear = isBullish(1) and isBearish(0)
      and bodyBot(0) < bodyBot(1) and bodyTop(0) > bodyTop(1)
-     and isUp(2)
+     and trendUp2
 
 // ── Dark Cloud Cover (ch. 5) ─────────────────────────────────────────
 pDarkCloud = isBullish(1) and isBearish(0) and isLongBody(1)
      and open[0] > high[1]
      and close[0] < bodyBot(1) + (1 - i_penetration) * bodySize(1)
      and close[0] > bodyBot(1)
-     and isUp(2)
+     and trendUp2
 
 // ── Piercing Pattern (ch. 5) ────────────────────────────────────────
 pPiercing = isBearish(1) and isBullish(0) and isLongBody(1)
      and open[0] < low[1]
      and close[0] > bodyBot(1) + i_penetration * bodySize(1)
      and close[0] < bodyTop(1)
-     and isDown(2)
+     and trendDn2
 
 // ── Inverted Hammer (ch. 6) ─────────────────────────────────────────
 invertedShape = candleRange(0) > 0
@@ -222,52 +229,52 @@ invertedShape = candleRange(0) > 0
      and lowerShad(0) <= i_upperShadRatio * candleRange(0)
      and bodySize(0) > 0
 
-pInvHammer = invertedShape and isDown(1)
+pInvHammer = invertedShape and trendDn1
 
 // ── Shooting Star (ch. 6) ───────────────────────────────────────────
-pShootingStar = invertedShape and isUp(1)
+pShootingStar = invertedShape and trendUp1
 
 // ── Morning Star (ch. 9) ────────────────────────────────────────────
-pMorningStar = isDown(3) and isLongBody(2) and isBearish(2)
+pMorningStar = trendDn3 and isLongBody(2) and isBearish(2)
      and isSmallBody(1)
      and bodyTop(1) < bodyBot(2)  // gap down
      and isLongBody(0) and isBullish(0)
      and close[0] > bodyBot(2) + i_penetration * bodySize(2)
 
 // ── Evening Star (ch. 9) ────────────────────────────────────────────
-pEveningStar = isUp(3) and isLongBody(2) and isBullish(2)
+pEveningStar = trendUp3 and isLongBody(2) and isBullish(2)
      and isSmallBody(1)
      and bodyBot(1) > bodyTop(2)  // gap up
      and isLongBody(0) and isBearish(0)
      and close[0] < bodyTop(2) - i_penetration * bodySize(2)
 
 // ── Morning Doji Star (ch. 9) ───────────────────────────────────────
-pMorningDojiStar = isDown(3) and isLongBody(2) and isBearish(2)
+pMorningDojiStar = trendDn3 and isLongBody(2) and isBearish(2)
      and isDoji(1)
      and bodyTop(1) < bodyBot(2)
      and isLongBody(0) and isBullish(0)
      and close[0] > bodyBot(2) + i_penetration * bodySize(2)
 
 // ── Evening Doji Star (ch. 9) ───────────────────────────────────────
-pEveningDojiStar = isUp(3) and isLongBody(2) and isBullish(2)
+pEveningDojiStar = trendUp3 and isLongBody(2) and isBullish(2)
      and isDoji(1)
      and bodyBot(1) > bodyTop(2)
      and isLongBody(0) and isBearish(0)
      and close[0] < bodyTop(2) - i_penetration * bodySize(2)
 
 // ── Doji at Top (ch. 7–8) ───────────────────────────────────────────
-pDojiTop = isDoji(0) and isUp(1)
+pDojiTop = isDoji(0) and trendUp1
 
 // ── Doji at Bottom (ch. 7–8) ────────────────────────────────────────
-pDojiBot = isDoji(0) and isDown(1)
+pDojiBot = isDoji(0) and trendDn1
 
 // ── Long-legged Doji (ch. 7–8) ──────────────────────────────────────
 pLongLegDoji = isDoji(0) and candleRange(0) > 0
      and upperShad(0) >= i_llDojiShadow * candleRange(0)
      and lowerShad(0) >= i_llDojiShadow * candleRange(0)
 
-pLongLegBull = pLongLegDoji and isDown(1)
-pLongLegBear = pLongLegDoji and isUp(1)
+pLongLegBull = pLongLegDoji and trendDn1
+pLongLegBear = pLongLegDoji and trendUp1
 
 // ── Rickshaw Man (ch. 7–8) ──────────────────────────────────────────
 pRickshaw = pLongLegDoji and candleRange(0) > 0
@@ -276,64 +283,64 @@ midRange = (high[0] + low[0]) / 2
 pRickshawMan = pRickshaw
      and math.abs(midBody - midRange) <= i_rikCenter * candleRange(0)
 
-pRickBull = pRickshawMan and isDown(1)
-pRickBear = pRickshawMan and isUp(1)
+pRickBull = pRickshawMan and trendDn1
+pRickBear = pRickshawMan and trendUp1
 
 // ── Gravestone Doji (ch. 7–8) ───────────────────────────────────────
 pGravestone = isDoji(0) and candleRange(0) > 0
      and lowerShad(0) <= i_graveLower * candleRange(0)
      and upperShad(0) >= i_graveUpper * candleRange(0)
-     and isUp(1)
+     and trendUp1
 
 // ── Tri-star (ch. 7–8) ──────────────────────────────────────────────
-pTriStarBear = isDoji(2) and isDoji(1) and isDoji(0) and isUp(3)
+pTriStarBear = isDoji(2) and isDoji(1) and isDoji(0) and trendUp3
      and bodyTop(1) > bodyTop(2) and bodyTop(1) > bodyTop(0)
-pTriStarBull = isDoji(2) and isDoji(1) and isDoji(0) and isDown(3)
+pTriStarBull = isDoji(2) and isDoji(1) and isDoji(0) and trendDn3
      and bodyBot(1) < bodyBot(2) and bodyBot(1) < bodyBot(0)
 
 // ── Harami (ch. 10) ─────────────────────────────────────────────────
 pHaramiBull = isBearish(1) and isLongBody(1) and isBullish(0)
      and bodyTop(0) < bodyTop(1) and bodyBot(0) > bodyBot(1)
-     and isDown(2)
+     and trendDn2
 pHaramiBear = isBullish(1) and isLongBody(1) and isBearish(0)
      and bodyTop(0) < bodyTop(1) and bodyBot(0) > bodyBot(1)
-     and isUp(2)
+     and trendUp2
 
 // ── Harami Cross (ch. 10) ───────────────────────────────────────────
 pHaramiXBull = isBearish(1) and isLongBody(1) and isDoji(0)
      and bodyTop(0) < bodyTop(1) and bodyBot(0) > bodyBot(1)
-     and isDown(2)
+     and trendDn2
 pHaramiXBear = isBullish(1) and isLongBody(1) and isDoji(0)
      and bodyTop(0) < bodyTop(1) and bodyBot(0) > bodyBot(1)
-     and isUp(2)
+     and trendUp2
 
 // ── Tweezers Top (ch. 11) ───────────────────────────────────────────
 pTweezersTop = math.abs(high[0] - high[1]) <= i_matchTol * high[1]
      and isBullish(1) and isBearish(0)
-     and isUp(2)
+     and trendUp2
 
 // ── Tweezers Bottom (ch. 11) ────────────────────────────────────────
 pTweezersBot = math.abs(low[0] - low[1]) <= i_matchTol * low[1]
      and isBearish(1) and isBullish(0)
-     and isDown(2)
+     and trendDn2
 
 // ── Belt Hold (ch. 11) ──────────────────────────────────────────────
 pBeltBull = isBullish(0) and isLongBody(0)
      and lowerShad(0) <= i_beltShadow * candleRange(0)
-     and isDown(1)
+     and trendDn1
 pBeltBear = isBearish(0) and isLongBody(0)
      and upperShad(0) <= i_beltShadow * candleRange(0)
-     and isUp(1)
+     and trendUp1
 
 // ── Upside Gap Two Crows (ch. 11) ───────────────────────────────────
-pUGTwoCrows = isUp(3) and isBullish(2) and isLongBody(2)
+pUGTwoCrows = trendUp3 and isBullish(2) and isLongBody(2)
      and isBearish(1) and open[1] > close[2]   // gap up
      and isBearish(0)
      and open[0] > open[1] and close[0] < close[1]
      and close[0] > close[2]
 
 // ── Three Black Crows (ch. 12) ──────────────────────────────────────
-pThreeBlackCrows = isUp(3)
+pThreeBlackCrows = trendUp3
      and isBearish(2) and isLongBody(2) and lowerShad(2) <= i_crowsShadow * candleRange(2)
      and isBearish(1) and isLongBody(1) and lowerShad(1) <= i_crowsShadow * candleRange(1)
      and isBearish(0) and isLongBody(0) and lowerShad(0) <= i_crowsShadow * candleRange(0)
@@ -342,7 +349,7 @@ pThreeBlackCrows = isUp(3)
      and open[0] < open[1] and open[0] > close[1]
 
 // ── Three White Soldiers (ch. 14) ───────────────────────────────────
-pThreeWhiteSoldiers = isDown(3)
+pThreeWhiteSoldiers = trendDn3
      and isBullish(2) and isLongBody(2) and upperShad(2) <= i_crowsShadow * candleRange(2)
      and isBullish(1) and isLongBody(1) and upperShad(1) <= i_crowsShadow * candleRange(1)
      and isBullish(0) and isLongBody(0) and upperShad(0) <= i_crowsShadow * candleRange(0)
@@ -354,25 +361,25 @@ pThreeWhiteSoldiers = isDown(3)
 pCounterBull = isBearish(1) and isLongBody(1)
      and isBullish(0) and isLongBody(0)
      and math.abs(close[0] - close[1]) <= i_matchTol * close[1]
-     and isDown(2)
+     and trendDn2
 pCounterBear = isBullish(1) and isLongBody(1)
      and isBearish(0) and isLongBody(0)
      and math.abs(close[0] - close[1]) <= i_matchTol * close[1]
-     and isUp(2)
+     and trendUp2
 
 // ── Separating Lines (ch. 14) ───────────────────────────────────────
 pSepBull = isBearish(1)
      and isBullish(0) and isLongBody(0)
      and math.abs(open[0] - open[1]) <= i_matchTol * open[1]
-     and isUp(2)
+     and trendUp2
 pSepBear = isBullish(1)
      and isBearish(0) and isLongBody(0)
      and math.abs(open[0] - open[1]) <= i_matchTol * open[1]
-     and isDown(2)
+     and trendDn2
 
 // ── Window Up / Down (ch. 13) ───────────────────────────────────────
-pWindowUp   = low[0] > high[1] and isUp(2)
-pWindowDown = high[0] < low[1] and isDown(2)
+pWindowUp   = low[0] > high[1] and trendUp2
+pWindowDown = high[0] < low[1] and trendDn2
 
 // ── Rising Three Methods (ch. 14) ───────────────────────────────────
 pRising3 = isBullish(4) and isLongBody(4)
@@ -409,7 +416,7 @@ if bar_index > i_mtRiverLB
         h3 = array.get(recentPH, 2)
         meanH = (h1 + h2 + h3) / 3
         if math.max(h1, h2, h3) - math.min(h1, h2, h3) <= i_mtRiverTol * meanH
-            pThreeMountains := isBearish(0) and isUp(1)
+            pThreeMountains := isBearish(0) and trendUp1
 
 // ── Three Rivers (ch. 12) ───────────────────────────────────────────
 pThreeRivers = false
@@ -425,7 +432,7 @@ if bar_index > i_mtRiverLB
         l3 = array.get(recentPL, 2)
         meanL = (l1 + l2 + l3) / 3
         if math.max(l1, l2, l3) - math.min(l1, l2, l3) <= i_mtRiverTol * meanL
-            pThreeRivers := isBullish(0) and isDown(1)
+            pThreeRivers := isBullish(0) and trendDn1
 
 // ── Tower Top (ch. 12) ──────────────────────────────────────────────
 pTowerTop = false
@@ -458,7 +465,7 @@ if bar_index >= i_multiBarWin
             nSmall += 1
     pDumplingTop := nSmall >= (i_multiBarWin - 2)
          and isBearish(0) and isLongBody(0)
-         and isUp(i_multiBarWin)
+         and trendUpMB
 
 // ── Fry Pan Bottom (ch. 12) ─────────────────────────────────────────
 pFryPanBot = false
@@ -469,7 +476,7 @@ if bar_index >= i_multiBarWin
             nSmall3 += 1
     pFryPanBot := nSmall3 >= (i_multiBarWin - 2)
          and isBullish(0) and isLongBody(0)
-         and isDown(i_multiBarWin)
+         and trendDnMB
 
 
 // ═══════════════════════════════════════════════════════════════════════════
