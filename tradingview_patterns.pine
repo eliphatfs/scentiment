@@ -8,7 +8,7 @@
 //
 //@version=6
 indicator("Nison Candlestick Patterns", overlay=true,
-     max_labels_count=500, max_lines_count=200)
+     max_labels_count=500, max_lines_count=200, max_bars_back=500)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INPUTS
@@ -17,7 +17,6 @@ indicator("Nison Candlestick Patterns", overlay=true,
 // ── Display ──────────────────────────────────────────────────────────
 i_showPatterns   = input.bool(true,  "Show Pattern Labels",         group="Display")
 i_showPivots     = input.bool(true,  "Show Pivots",                 group="Display")
-i_showTrendBg    = input.bool(true,  "Show Trend Background",       group="Display")
 i_showTable      = input.bool(true,  "Show Trend Table",            group="Display")
 i_showConf       = input.bool(true,  "Show Confirmation Status",    group="Display")
 
@@ -737,96 +736,89 @@ if pTowerTop
 // PLOTTING
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ── Trend background ─────────────────────────────────────────────────
-trendBgColor = mediumTrend == 1 ? color.new(color.green, 88)
-     : mediumTrend == -1 ? color.new(color.red, 88) : na
-bgcolor(i_showTrendBg ? trendBgColor : na)
+// ── Pivots — label-based with retroactive dedup ─────────────────────
+// Lower-order pivots fire before higher-order ones (fewer right bars).
+// We use labels so higher-order pivots can delete superseded lower-order
+// markers at the same bar retroactively.
 
-// ── Pivots — empty triangles, 3 sizes ────────────────────────────────
-// A higher-order pivot subsumes lower orders: only show the highest
-// order detected at each bar.  We track which bars have been claimed
-// by order 3/2 and suppress order 1/2 accordingly.
-//
-// Since plotshape offsets differ per order, we use arrays to record
-// which bar_index values already have a higher-order marker, then
-// gate lower-order plotshape via a boolean that checks the arrays.
+// Arrays track [pivot_bar_index, label_id, order] for recent pivots.
+var int[]   pvhBars   = array.new_int(0)
+var label[] pvhLabels = array.new_label(0)
+var int[]   pvhOrder  = array.new_int(0)
+var int[]   pvlBars   = array.new_int(0)
+var label[] pvlLabels = array.new_label(0)
+var int[]   pvlOrder  = array.new_int(0)
 
-// Track bars claimed by higher-order pivots (sliding window)
-var int[] claimedPH = array.new_int(0)
-var int[] claimedPL = array.new_int(0)
+_placePivotHigh(int pivotBar, int order, string sym, color clr, string sz) =>
+    if i_showPivots
+        // Delete any lower-order label at the same bar
+        for idx = array.size(pvhBars) - 1 to 0
+            if array.get(pvhBars, idx) == pivotBar
+                label.delete(array.get(pvhLabels, idx))
+                array.remove(pvhBars, idx)
+                array.remove(pvhLabels, idx)
+                array.remove(pvhOrder, idx)
+        lbl = label.new(pivotBar, high[bar_index - pivotBar], sym,
+             style=label.style_text_outline,
+             textcolor=clr, size=sz, yloc=yloc.abovebar)
+        array.push(pvhBars, pivotBar)
+        array.push(pvhLabels, lbl)
+        array.push(pvhOrder, order)
+        // Keep bounded
+        if array.size(pvhBars) > 200
+            array.shift(pvhBars)
+            label.delete(array.shift(pvhLabels))
+            array.shift(pvhOrder)
 
-// Order 3 — always shown; claim the bar
-int ph3Bar = not na(ph3) ? bar_index - i_pv3Right : -1
-int pl3Bar = not na(pl3) ? bar_index - i_pv3Right : -1
-if ph3Bar >= 0
-    array.push(claimedPH, ph3Bar)
-if pl3Bar >= 0
-    array.push(claimedPL, pl3Bar)
+_placePivotLow(int pivotBar, int order, string sym, color clr, string sz) =>
+    if i_showPivots
+        for idx = array.size(pvlBars) - 1 to 0
+            if array.get(pvlBars, idx) == pivotBar
+                label.delete(array.get(pvlLabels, idx))
+                array.remove(pvlBars, idx)
+                array.remove(pvlLabels, idx)
+                array.remove(pvlOrder, idx)
+        lbl = label.new(pivotBar, low[bar_index - pivotBar], sym,
+             style=label.style_text_outline,
+             textcolor=clr, size=sz, yloc=yloc.belowbar)
+        array.push(pvlBars, pivotBar)
+        array.push(pvlLabels, lbl)
+        array.push(pvlOrder, order)
+        if array.size(pvlBars) > 200
+            array.shift(pvlBars)
+            label.delete(array.shift(pvlLabels))
+            array.shift(pvlOrder)
 
-// Order 2 — shown only if bar not claimed by order 3
-int ph2Bar = not na(ph2) ? bar_index - i_pv2Right : -1
-int pl2Bar = not na(pl2) ? bar_index - i_pv2Right : -1
-bool ph2Claimed = ph2Bar >= 0 and array.includes(claimedPH, ph2Bar)
-bool pl2Claimed = pl2Bar >= 0 and array.includes(claimedPL, pl2Bar)
-// Claim bar for order 2 (so order 1 is suppressed)
-if ph2Bar >= 0 and not ph2Claimed
-    array.push(claimedPH, ph2Bar)
-if pl2Bar >= 0 and not pl2Claimed
-    array.push(claimedPL, pl2Bar)
+// Order 1 fires first (fewest right bars) — may be deleted later
+if not na(ph1)
+    _placePivotHigh(bar_index - i_pv1Right, 1, "▽", color.new(color.red, 30), size.tiny)
+if not na(pl1)
+    _placePivotLow(bar_index - i_pv1Right, 1, "△", color.new(color.green, 30), size.tiny)
 
-// Order 1 — shown only if bar not claimed by order 2 or 3
-int ph1Bar = not na(ph1) ? bar_index - i_pv1Right : -1
-int pl1Bar = not na(pl1) ? bar_index - i_pv1Right : -1
-bool ph1Claimed = ph1Bar >= 0 and array.includes(claimedPH, ph1Bar)
-bool pl1Claimed = pl1Bar >= 0 and array.includes(claimedPL, pl1Bar)
+// Order 2 fires later — deletes order 1 at same bar
+if not na(ph2)
+    _placePivotHigh(bar_index - i_pv2Right, 2, "▽", color.new(color.red, 10), size.small)
+if not na(pl2)
+    _placePivotLow(bar_index - i_pv2Right, 2, "△", color.new(color.green, 10), size.small)
 
-// Keep arrays bounded
-if array.size(claimedPH) > 200
-    array.shift(claimedPH)
-if array.size(claimedPL) > 200
-    array.shift(claimedPL)
-
-plotshape(i_showPivots and not na(ph1) and not ph1Claimed ? high[i_pv1Right] : na,
-     title="PH Order 1", style=shape.triangledown,
-     location=location.abovebar, color=color.new(color.red, 30),
-     size=size.tiny, offset=-i_pv1Right)
-plotshape(i_showPivots and not na(pl1) and not pl1Claimed ? low[i_pv1Right] : na,
-     title="PL Order 1", style=shape.triangleup,
-     location=location.belowbar, color=color.new(color.green, 30),
-     size=size.tiny, offset=-i_pv1Right)
-
-plotshape(i_showPivots and not na(ph2) and not ph2Claimed ? high[i_pv2Right] : na,
-     title="PH Order 2", style=shape.triangledown,
-     location=location.abovebar, color=color.new(color.red, 10),
-     size=size.small, offset=-i_pv2Right)
-plotshape(i_showPivots and not na(pl2) and not pl2Claimed ? low[i_pv2Right] : na,
-     title="PL Order 2", style=shape.triangleup,
-     location=location.belowbar, color=color.new(color.green, 10),
-     size=size.small, offset=-i_pv2Right)
-
-plotshape(i_showPivots and not na(ph3) ? high[i_pv3Right] : na,
-     title="PH Order 3", style=shape.triangledown,
-     location=location.abovebar, color=color.new(color.red, 0),
-     size=size.normal, offset=-i_pv3Right)
-plotshape(i_showPivots and not na(pl3) ? low[i_pv3Right] : na,
-     title="PL Order 3", style=shape.triangleup,
-     location=location.belowbar, color=color.new(color.green, 0),
-     size=size.normal, offset=-i_pv3Right)
+// Order 3 fires last — deletes order 1 or 2 at same bar
+if not na(ph3)
+    _placePivotHigh(bar_index - i_pv3Right, 3, "▽", color.new(color.red, 0), size.normal)
+if not na(pl3)
+    _placePivotLow(bar_index - i_pv3Right, 3, "△", color.new(color.green, 0), size.normal)
 
 // ── Pattern labels ───────────────────────────────────────────────────
 if i_showPatterns and bullCount > 0
     txt = bullLabel + "\n[" + str.tostring(bullScore * 100, "#") + "%]"
     label.new(bar_index, low, txt,
-         style=label.style_label_up,
-         color=color.new(color.blue, 70),
-         textcolor=color.white, size=size.small)
+         style=label.style_text_outline,
+         textcolor=color.blue, size=size.small)
 
 if i_showPatterns and bearCount > 0
     txt = bearLabel + "\n[" + str.tostring(bearScore * 100, "#") + "%]"
     label.new(bar_index, high, txt,
-         style=label.style_label_down,
-         color=color.new(color.orange, 70),
-         textcolor=color.white, size=size.small)
+         style=label.style_text_outline,
+         textcolor=color.orange, size=size.small)
 
 // ── Multi-scale trend table ──────────────────────────────────────────
 trendColor(val) => val == 1 ? color.green : val == -1 ? color.red : color.gray
