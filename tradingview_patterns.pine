@@ -20,13 +20,14 @@ i_showPivots     = input.bool(true,  "Show Pivots",                 group="Displ
 i_showTable      = input.bool(true,  "Show Trend Table",            group="Display")
 i_showConf       = input.bool(true,  "Show Confirmation Status",    group="Display")
 
-// ── Pivot orders (left/right bars) ───────────────────────────────────
-i_pv1Left  = input.int(1,  "Pivot Order 1 — Left",  minval=1, group="Pivots")
-i_pv1Right = input.int(1,  "Pivot Order 1 — Right", minval=1, group="Pivots")
-i_pv2Left  = input.int(3,  "Pivot Order 2 — Left",  minval=1, group="Pivots")
-i_pv2Right = input.int(3,  "Pivot Order 2 — Right", minval=1, group="Pivots")
-i_pv3Left  = input.int(5,  "Pivot Order 3 — Left",  minval=1, group="Pivots")
-i_pv3Right = input.int(5,  "Pivot Order 3 — Right", minval=1, group="Pivots")
+// ── Pivot detection (Grimes higher-order definition) ────────────────
+// Order 1: local high/low vs immediate neighbors (configurable window).
+// Order 2: order-1 pivot whose value exceeds both adjacent order-1 pivots.
+// Order 3: order-2 pivot whose value exceeds both adjacent order-2 pivots.
+// No window-size parameters for orders 2/3 — they are defined purely by
+// the sequence of lower-order pivots.
+i_pvLeft   = input.int(1,  "Pivot — Left bars",  minval=1, group="Pivots")
+i_pvRight  = input.int(1,  "Pivot — Right bars", minval=1, group="Pivots")
 
 // ── Shape thresholds ─────────────────────────────────────────────────
 i_dojiThr        = input.float(0.1,   "Doji Threshold",             step=0.01,   group="Shape")
@@ -102,15 +103,95 @@ regSlope(src, length) =>
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PIVOTS
+// PIVOTS (Grimes higher-order definition)
 // ═══════════════════════════════════════════════════════════════════════════
+// Order 1: ta.pivothigh/low with configurable left/right window.
+// Order 2: among order-1 pivots, one whose value exceeds both adjacent
+//          order-1 pivots of the same kind. Confirmed when the next
+//          order-1 pivot arrives.
+// Order 3: same logic applied to order-2 pivots.
 
-ph1 = ta.pivothigh(high, i_pv1Left, i_pv1Right)
-pl1 = ta.pivotlow (low,  i_pv1Left, i_pv1Right)
-ph2 = ta.pivothigh(high, i_pv2Left, i_pv2Right)
-pl2 = ta.pivotlow (low,  i_pv2Left, i_pv2Right)
-ph3 = ta.pivothigh(high, i_pv3Left, i_pv3Right)
-pl3 = ta.pivotlow (low,  i_pv3Left, i_pv3Right)
+ph1 = ta.pivothigh(high, i_pvLeft, i_pvRight)
+pl1 = ta.pivotlow (low,  i_pvLeft, i_pvRight)
+
+// ── Order-1 tracking arrays for higher-order computation ──────────────
+var float[] ph1Vals = array.new_float(0)
+var int[]   ph1Bars = array.new_int(0)
+var float[] pl1Vals = array.new_float(0)
+var int[]   pl1Bars = array.new_int(0)
+
+int ph1Bar = bar_index - i_pvRight   // bar where the order-1 pivot sits
+int pl1Bar = bar_index - i_pvRight
+
+if not na(ph1)
+    array.push(ph1Vals, ph1)
+    array.push(ph1Bars, ph1Bar)
+if not na(pl1)
+    array.push(pl1Vals, pl1)
+    array.push(pl1Bars, pl1Bar)
+
+// ── Order-2: check second-to-last order-1 pivot ───────────────────────
+// When a new order-1 PH arrives and we have ≥3, the second-to-last can
+// be confirmed as order-2 if it's higher than both neighbors.
+var float[] ph2Vals = array.new_float(0)
+var int[]   ph2Bars = array.new_int(0)
+var float[] pl2Vals = array.new_float(0)
+var int[]   pl2Bars = array.new_int(0)
+
+bool newPH2 = false
+int  ph2Bar = 0
+float ph2Val = na
+bool newPL2 = false
+int  pl2Bar = 0
+float pl2Val = na
+
+if not na(ph1) and array.size(ph1Vals) >= 3
+    int sz = array.size(ph1Vals)
+    float prev_ = array.get(ph1Vals, sz - 3)
+    float mid_  = array.get(ph1Vals, sz - 2)
+    float next_ = array.get(ph1Vals, sz - 1)
+    if mid_ > prev_ and mid_ > next_
+        newPH2 := true
+        ph2Bar := array.get(ph1Bars, sz - 2)
+        ph2Val := mid_
+        array.push(ph2Vals, mid_)
+        array.push(ph2Bars, ph2Bar)
+
+if not na(pl1) and array.size(pl1Vals) >= 3
+    int sz = array.size(pl1Vals)
+    float prev_ = array.get(pl1Vals, sz - 3)
+    float mid_  = array.get(pl1Vals, sz - 2)
+    float next_ = array.get(pl1Vals, sz - 1)
+    if mid_ < prev_ and mid_ < next_
+        newPL2 := true
+        pl2Bar := array.get(pl1Bars, sz - 2)
+        pl2Val := mid_
+        array.push(pl2Vals, mid_)
+        array.push(pl2Bars, pl2Bar)
+
+// ── Order-3: check second-to-last order-2 pivot ───────────────────────
+bool newPH3 = false
+int  ph3Bar = 0
+bool newPL3 = false
+int  pl3Bar = 0
+
+if newPH2 and array.size(ph2Vals) >= 3
+    int sz = array.size(ph2Vals)
+    float prev_ = array.get(ph2Vals, sz - 3)
+    float mid_  = array.get(ph2Vals, sz - 2)
+    float next_ = array.get(ph2Vals, sz - 1)
+    if mid_ > prev_ and mid_ > next_
+        newPH3 := true
+        ph3Bar := array.get(ph2Bars, sz - 2)
+
+if newPL2 and array.size(pl2Vals) >= 3
+    int sz = array.size(pl2Vals)
+    float prev_ = array.get(pl2Vals, sz - 3)
+    float mid_  = array.get(pl2Vals, sz - 2)
+    float next_ = array.get(pl2Vals, sz - 1)
+    if mid_ < prev_ and mid_ < next_
+        newPL3 := true
+        pl3Bar := array.get(pl2Bars, sz - 2)
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -137,36 +218,36 @@ shortTrend = slope > 0 ? 1 : slope < 0 ? -1 : 0
 // ── Pivot-based trend (order 1 = medium, order 2 = long) ────────────
 // Track last two pivot highs/lows for HH+HL / LH+LL detection.
 
-var float lastPH1  = na
-var float prevPH1  = na
-var float lastPL1  = na
-var float prevPL1  = na
+var float lastPH1v  = na
+var float prevPH1v  = na
+var float lastPL1v  = na
+var float prevPL1v  = na
 
 if not na(ph1)
-    prevPH1 := lastPH1
-    lastPH1 := ph1
+    prevPH1v := lastPH1v
+    lastPH1v := ph1
 if not na(pl1)
-    prevPL1 := lastPL1
-    lastPL1 := pl1
+    prevPL1v := lastPL1v
+    lastPL1v := pl1
 
-mediumUp   = not na(prevPH1) and not na(prevPL1) and lastPH1 > prevPH1 and lastPL1 > prevPL1
-mediumDown = not na(prevPH1) and not na(prevPL1) and lastPH1 < prevPH1 and lastPL1 < prevPL1
+mediumUp   = not na(prevPH1v) and not na(prevPL1v) and lastPH1v > prevPH1v and lastPL1v > prevPL1v
+mediumDown = not na(prevPH1v) and not na(prevPL1v) and lastPH1v < prevPH1v and lastPL1v < prevPL1v
 mediumTrend = mediumUp ? 1 : mediumDown ? -1 : 0
 
-var float lastPH2  = na
-var float prevPH2  = na
-var float lastPL2  = na
-var float prevPL2  = na
+var float lastPH2v  = na
+var float prevPH2v  = na
+var float lastPL2v  = na
+var float prevPL2v  = na
 
-if not na(ph2)
-    prevPH2 := lastPH2
-    lastPH2 := ph2
-if not na(pl2)
-    prevPL2 := lastPL2
-    lastPL2 := pl2
+if newPH2
+    prevPH2v := lastPH2v
+    lastPH2v := ph2Val
+if newPL2
+    prevPL2v := lastPL2v
+    lastPL2v := pl2Val
 
-longUp   = not na(prevPH2) and not na(prevPL2) and lastPH2 > prevPH2 and lastPL2 > prevPL2
-longDown = not na(prevPH2) and not na(prevPL2) and lastPH2 < prevPH2 and lastPL2 < prevPL2
+longUp   = not na(prevPH2v) and not na(prevPL2v) and lastPH2v > prevPH2v and lastPL2v > prevPL2v
+longDown = not na(prevPH2v) and not na(prevPL2v) and lastPH2v < prevPH2v and lastPL2v < prevPL2v
 longTrend = longUp ? 1 : longDown ? -1 : 0
 
 // ── Effective trend (cascade: pivot → regression → body-run) ────────
@@ -744,75 +825,68 @@ if pTowerTop
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── Pivots — label-based with retroactive dedup ─────────────────────
-// Lower-order pivots fire before higher-order ones (fewer right bars).
-// We use labels so higher-order pivots can delete superseded lower-order
-// markers at the same bar retroactively.
+// Order-1 pivots render immediately. Higher-order pivots fire later
+// (when the next lower-order pivot confirms them) and retroactively
+// delete the lower-order label at the same bar.
 
-// Arrays track [pivot_bar_index, label_id, order] for recent pivots.
+// Arrays track [pivot_bar_index, label_id] for recent pivot labels.
 var int[]   pvhBars   = array.new_int(0)
 var label[] pvhLabels = array.new_label(0)
-var int[]   pvhOrder  = array.new_int(0)
 var int[]   pvlBars   = array.new_int(0)
 var label[] pvlLabels = array.new_label(0)
-var int[]   pvlOrder  = array.new_int(0)
 
-_placePivotHigh(int pivotBar, int order, string sym, color clr, string sz) =>
+_placePivotHigh(int pivotBar, string sym, color clr, string sz) =>
     if i_showPivots
-        // Delete any lower-order label at the same bar
-        for idx = array.size(pvhBars) - 1 to 0
-            if array.get(pvhBars, idx) == pivotBar
-                label.delete(array.get(pvhLabels, idx))
-                array.remove(pvhBars, idx)
-                array.remove(pvhLabels, idx)
-                array.remove(pvhOrder, idx)
+        // Delete any existing label at the same bar (lower-order superseded)
+        if array.size(pvhBars) > 0
+            for idx = array.size(pvhBars) - 1 to 0
+                if array.get(pvhBars, idx) == pivotBar
+                    label.delete(array.get(pvhLabels, idx))
+                    array.remove(pvhBars, idx)
+                    array.remove(pvhLabels, idx)
         lbl = label.new(pivotBar, high[bar_index - pivotBar], sym,
              style=label.style_text_outline,
              textcolor=clr, size=sz, yloc=yloc.abovebar)
         array.push(pvhBars, pivotBar)
         array.push(pvhLabels, lbl)
-        array.push(pvhOrder, order)
-        // Keep bounded
         if array.size(pvhBars) > 200
             array.shift(pvhBars)
             label.delete(array.shift(pvhLabels))
-            array.shift(pvhOrder)
 
-_placePivotLow(int pivotBar, int order, string sym, color clr, string sz) =>
+_placePivotLow(int pivotBar, string sym, color clr, string sz) =>
     if i_showPivots
-        for idx = array.size(pvlBars) - 1 to 0
-            if array.get(pvlBars, idx) == pivotBar
-                label.delete(array.get(pvlLabels, idx))
-                array.remove(pvlBars, idx)
-                array.remove(pvlLabels, idx)
-                array.remove(pvlOrder, idx)
+        if array.size(pvlBars) > 0
+            for idx = array.size(pvlBars) - 1 to 0
+                if array.get(pvlBars, idx) == pivotBar
+                    label.delete(array.get(pvlLabels, idx))
+                    array.remove(pvlBars, idx)
+                    array.remove(pvlLabels, idx)
         lbl = label.new(pivotBar, low[bar_index - pivotBar], sym,
              style=label.style_text_outline,
              textcolor=clr, size=sz, yloc=yloc.belowbar)
         array.push(pvlBars, pivotBar)
         array.push(pvlLabels, lbl)
-        array.push(pvlOrder, order)
         if array.size(pvlBars) > 200
             array.shift(pvlBars)
             label.delete(array.shift(pvlLabels))
-            array.shift(pvlOrder)
 
-// Order 1 fires first (fewest right bars) — may be deleted later
+// Order 1 fires first — may be superseded later by order 2 or 3
 if not na(ph1)
-    _placePivotHigh(bar_index - i_pv1Right, 1, "▽", color.new(color.red, 30), size.tiny)
+    _placePivotHigh(ph1Bar, "▽", color.new(color.red, 30), size.tiny)
 if not na(pl1)
-    _placePivotLow(bar_index - i_pv1Right, 1, "△", color.new(color.green, 30), size.tiny)
+    _placePivotLow(pl1Bar, "△", color.new(color.green, 30), size.tiny)
 
-// Order 2 fires later — deletes order 1 at same bar
-if not na(ph2)
-    _placePivotHigh(bar_index - i_pv2Right, 2, "▽", color.new(color.red, 10), size.small)
-if not na(pl2)
-    _placePivotLow(bar_index - i_pv2Right, 2, "△", color.new(color.green, 10), size.small)
+// Order 2 fires when next order-1 confirms — deletes order-1 label at same bar
+if newPH2
+    _placePivotHigh(ph2Bar, "▽", color.new(color.red, 10), size.small)
+if newPL2
+    _placePivotLow(pl2Bar, "△", color.new(color.green, 10), size.small)
 
-// Order 3 fires last — deletes order 1 or 2 at same bar
-if not na(ph3)
-    _placePivotHigh(bar_index - i_pv3Right, 3, "▽", color.new(color.red, 0), size.normal)
-if not na(pl3)
-    _placePivotLow(bar_index - i_pv3Right, 3, "△", color.new(color.green, 0), size.normal)
+// Order 3 fires when next order-2 confirms — deletes order-2 label at same bar
+if newPH3
+    _placePivotHigh(ph3Bar, "▽", color.new(color.red, 0), size.normal)
+if newPL3
+    _placePivotLow(pl3Bar, "△", color.new(color.green, 0), size.normal)
 
 // ── Pattern labels ───────────────────────────────────────────────────
 if i_showPatterns and bullCount > 0
