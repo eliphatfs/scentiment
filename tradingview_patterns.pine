@@ -839,12 +839,11 @@ var label[] pvhLabels = array.new_label(0)
 var int[]   pvlBars   = array.new_int(0)
 var label[] pvlLabels = array.new_label(0)
 
-// Pivots use yloc.price at exact high/low — the triangle character is
-// rendered in fixed pixels so it sits right at the bar tip regardless of
-// zoom, with a natural small visual gap from the character's extent.
-_placePivotHigh(int pivotBar, string sym, color clr, string sz) =>
+// Pivots use built-in triangle label styles. The triangle tip anchors at
+// the y coordinate (bar high/low), so it sits right at the bar tip with
+// consistent visual spacing regardless of zoom.
+_placePivotHigh(int pivotBar, color clr, string sz) =>
     if i_showPivots
-        // Delete any existing label at the same bar (lower-order superseded)
         if array.size(pvhBars) > 0
             for idx = array.size(pvhBars) - 1 to 0
                 if array.get(pvhBars, idx) == pivotBar
@@ -852,16 +851,16 @@ _placePivotHigh(int pivotBar, string sym, color clr, string sz) =>
                     array.remove(pvhBars, idx)
                     array.remove(pvhLabels, idx)
         int offset = bar_index - pivotBar
-        lbl = label.new(pivotBar, high[offset], sym,
-             style=label.style_none,
-             textcolor=clr, size=sz, yloc=yloc.price)
+        lbl = label.new(pivotBar, high[offset], "",
+             style=label.style_triangledown, color=clr,
+             size=sz, yloc=yloc.price)
         array.push(pvhBars, pivotBar)
         array.push(pvhLabels, lbl)
         if array.size(pvhBars) > 200
             array.shift(pvhBars)
             label.delete(array.shift(pvhLabels))
 
-_placePivotLow(int pivotBar, string sym, color clr, string sz) =>
+_placePivotLow(int pivotBar, color clr, string sz) =>
     if i_showPivots
         if array.size(pvlBars) > 0
             for idx = array.size(pvlBars) - 1 to 0
@@ -870,9 +869,9 @@ _placePivotLow(int pivotBar, string sym, color clr, string sz) =>
                     array.remove(pvlBars, idx)
                     array.remove(pvlLabels, idx)
         int offset = bar_index - pivotBar
-        lbl = label.new(pivotBar, low[offset], sym,
-             style=label.style_none,
-             textcolor=clr, size=sz, yloc=yloc.price)
+        lbl = label.new(pivotBar, low[offset], "",
+             style=label.style_triangleup, color=clr,
+             size=sz, yloc=yloc.price)
         array.push(pvlBars, pivotBar)
         array.push(pvlLabels, lbl)
         if array.size(pvlBars) > 200
@@ -881,21 +880,21 @@ _placePivotLow(int pivotBar, string sym, color clr, string sz) =>
 
 // Order 1 fires first — may be superseded later by order 2 or 3
 if not na(ph1)
-    _placePivotHigh(ph1Bar, "▿", color.new(color.red, 40), size.large)
+    _placePivotHigh(ph1Bar, color.new(color.red, 40), size.small)
 if not na(pl1)
-    _placePivotLow(pl1Bar, "▵", color.new(color.green, 40), size.large)
+    _placePivotLow(pl1Bar, color.new(color.green, 40), size.small)
 
 // Order 2 fires when next order-1 confirms — deletes order-1 label at same bar
 if newPH2
-    _placePivotHigh(ph2Bar, "▽", color.new(color.red, 10), size.huge)
+    _placePivotHigh(ph2Bar, color.new(color.red, 10), size.normal)
 if newPL2
-    _placePivotLow(pl2Bar, "△", color.new(color.green, 10), size.huge)
+    _placePivotLow(pl2Bar, color.new(color.green, 10), size.normal)
 
 // Order 3 fires when next order-2 confirms — deletes order-2 label at same bar
 if newPH3
-    _placePivotHigh(ph3Bar, "▼", color.red, size.huge)
+    _placePivotHigh(ph3Bar, color.red, size.large)
 if newPL3
-    _placePivotLow(pl3Bar, "▲", color.green, size.huge)
+    _placePivotLow(pl3Bar, color.green, size.large)
 
 // ── Pattern labels ───────────────────────────────────────────────────
 // Pattern text with background fill so it renders in front of candles.
